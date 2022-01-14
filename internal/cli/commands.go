@@ -27,6 +27,16 @@ func Commands() map[string]cli.CommandFactory {
 				baseCommand: baseCommand,
 			}, nil
 		},
+		"graph": func() (cli.Command, error) {
+			return &GraphCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"clean": func() (cli.Command, error) {
+			return &CleanCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
 		"init": func() (cli.Command, error) {
 			return &InitCommand{
 				UI: ui,

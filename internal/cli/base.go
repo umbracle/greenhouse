@@ -7,8 +7,8 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
+	flag "github.com/spf13/pflag"
 	"github.com/umbracle/greenhouse/internal/core"
-	"github.com/umbracle/greenhouse/internal/lib/flagset"
 )
 
 var defaultConfigFileName = "greenhouse.hcl"
@@ -20,11 +20,10 @@ type baseCommand struct {
 	cliConfig *core.Config
 }
 
-func (b *baseCommand) Flags(name string) *flagset.Flagset {
+func (b *baseCommand) Flags(name string) *flag.FlagSet {
 	b.cliConfig = &core.Config{}
 
-	flags := flagset.NewFlagSet(name)
-
+	flags := flag.NewFlagSet(name, 0)
 	return flags
 }
 

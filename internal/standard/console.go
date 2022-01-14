@@ -1,4 +1,4 @@
-package soltestlib
+package standard
 
 import (
 	"encoding/hex"
@@ -23,7 +23,7 @@ func init() {
 	*/
 
 	rxp := regexp.MustCompile("abi.encodeWithSignature\\(\"log(.*)\"")
-	matches := rxp.FindAllStringSubmatch(string(GetConsoleLib()), -1)
+	matches := rxp.FindAllStringSubmatch(string(console), -1)
 
 	for _, match := range matches {
 		typStr := match[1]

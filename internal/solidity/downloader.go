@@ -8,32 +8,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
-// SolidityVersionManager is a manager to download solidity versions
-type SolidityVersionManager struct {
-	Dst string
+type downloader struct {
+	dst string
+
+	// channel to sync concurrent solidity downloads
+	downloaderLock sync.Mutex
+	downloaderCh   map[string]chan struct{}
 }
 
-func NewSolidityVersionManager(dir string) (*SolidityVersionManager, error) {
-	if dir == "" {
-		dirname, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get home directory: %v", err)
-		}
-		dir = filepath.Join(dirname, ".gosolc")
-	}
-	s := &SolidityVersionManager{
-		Dst: dir,
-	}
-	return s, nil
-}
-
-func (s *SolidityVersionManager) Path(version string) string {
-	return filepath.Join(s.Dst, "solidity-"+version)
-}
-
-func (s *SolidityVersionManager) Exists(version string) bool {
+func (d *downloader) Exists(version string) bool {
 	if _, err := os.Stat(s.Path(version)); err == nil {
 		return true
 	} else if errors.Is(err, os.ErrNotExist) {
@@ -43,12 +29,38 @@ func (s *SolidityVersionManager) Exists(version string) bool {
 	}
 }
 
-func (s *SolidityVersionManager) Download(version string) error {
+func (d *downloader) download(version string) error {
+	if s.Exists(version) {
+		return nil
+	}
+
+	// check if we are already downloading it
+	d.downloaderLock.Lock()
+	ch, ok := d.downloaderCh[version]
+	if !ok {
+		ch = make(chan struct{})
+		defer close(ch)
+
+		d.downloaderCh[version] = ch
+		d.downloaderLock.Unlock()
+
+		// download the compiler since no one is doing it already
+		if err := d.downloadImpl(version, d.dst); err != nil {
+			return err
+		}
+	} else {
+		<-ch
+	}
+
+	return nil
+}
+
+func (d *downloader) downloadImpl(version string, dst string) error {
 	url := "https://github.com/ethereum/solidity/releases/download/v" + version + "/solc-static-linux"
 
 	// check if the dst is correct
 	exists := false
-	fi, err := os.Stat(s.Dst)
+	fi, err := os.Stat(dst)
 	if err == nil {
 		switch mode := fi.Mode(); {
 		case mode.IsDir():
@@ -58,13 +70,13 @@ func (s *SolidityVersionManager) Download(version string) error {
 		}
 	} else {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to stat dst '%s': %v", s.Dst, err)
+			return fmt.Errorf("failed to stat dst '%s': %v", dst, err)
 		}
 	}
 
 	// create the destiny path if does not exists
 	if !exists {
-		if err := os.MkdirAll(s.Dst, 0755); err != nil {
+		if err := os.MkdirAll(dst, 0755); err != nil {
 			return fmt.Errorf("cannot create dst path: %v", err)
 		}
 	}
@@ -73,7 +85,7 @@ func (s *SolidityVersionManager) Download(version string) error {
 	name := "solidity-" + version
 
 	// tmp folder to download the binary
-	tmpDir, err := ioutil.TempDir(s.Dst, "solc-download-")
+	tmpDir, err := ioutil.TempDir(dst, "solc-download-")
 	if err != nil {
 		return err
 	}
@@ -107,12 +119,10 @@ func (s *SolidityVersionManager) Download(version string) error {
 	}
 
 	// move file to dst
-	if err := os.Rename(path, filepath.Join(s.Dst, name)); err != nil {
+	if err := os.Rename(path, filepath.Join(dst, name)); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *SolidityVersionManager) Compile(version string, input *Input) (*Output, error) {
-	return nil, nil
-}
+var solidityVersions = map[string]string{}

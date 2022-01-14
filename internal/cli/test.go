@@ -3,15 +3,16 @@ package cli
 import (
 	"fmt"
 
+	flag "github.com/spf13/pflag"
 	"github.com/umbracle/greenhouse/internal/core"
-	"github.com/umbracle/greenhouse/internal/lib/flagset"
 )
 
 // TestCommand is the command to show the version of the agent
 type TestCommand struct {
 	*baseCommand
 
-	prefix string
+	verbose bool
+	prefix  string
 }
 
 // Help implements the cli.Command interface
@@ -25,21 +26,23 @@ func (c *TestCommand) Synopsis() string {
 	return "Test the Greenhouse project"
 }
 
-func (c *TestCommand) Flags() *flagset.Flagset {
+func (c *TestCommand) Flags() *flag.FlagSet {
 	flags := c.baseCommand.Flags("test")
 
-	flags.StringFlag(&flagset.StringFlag{
-		Name:  "run",
-		Value: &c.prefix,
-	})
+	flags.StringVar(&c.prefix, "run", "", "")
+	flags.BoolVarP(&c.verbose, "verbose", "v", false, "")
+
 	return flags
 }
 
 // Run implements the cli.Command interface
 func (c *TestCommand) Run(args []string) int {
-	if err := c.Flags().Parse(args); err != nil {
+
+	flags := c.Flags()
+	if err := flags.Parse(args); err != nil {
 		panic(err)
 	}
+	args = flags.Args()
 
 	if err := c.Init(); err != nil {
 		c.UI.Error(err.Error())
@@ -48,8 +51,13 @@ func (c *TestCommand) Run(args []string) int {
 
 	fmt.Println("a")
 	input := &core.TestInput{
-		Prefix: c.prefix,
+		Prefix:  c.prefix,
+		Verbose: c.verbose,
 	}
+	if len(args) == 1 {
+		input.Path = args[0]
+	}
+
 	if err := c.project.Test(input); err != nil {
 		c.UI.Error(err.Error())
 		return 1

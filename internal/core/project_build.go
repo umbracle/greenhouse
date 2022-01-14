@@ -1,352 +1,348 @@
 package core
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/google/uuid"
 	"github.com/hashicorp/go-version"
 	"github.com/umbracle/greenhouse/internal/lib/dag"
-	soltestlib "github.com/umbracle/greenhouse/internal/sol-test-lib"
+	"github.com/umbracle/greenhouse/internal/solidity"
 )
 
-type Output struct {
-	Contracts map[string]*Artifact
-	Sources   map[string]*SourceF
-	Version   string
-}
+func (p *Project) loadMetadata() ([]*FileDiff, error) {
+	// this is something you always have to load
+	files, err := Walk(p.config.Contracts)
+	if err != nil {
+		panic(err)
+	}
 
-type SourceF struct {
-	AST *ASTNode
-}
+	var metadata *Metadata
 
-type Artifact struct {
-	Abi           string `json:"abi"`
-	Bin           string `json:"bin"`
-	BinRuntime    string `json:"bin-runtime"`
-	SrcMap        string `json:"srcmap"`
-	SrcMapRuntime string `json:"srcmap-runtime"`
-}
-
-func (p *Project) loadDependencies() error {
-	fmt.Println(p.config.Dependencies)
-
-	for name, tag := range p.config.Dependencies {
-		args := []string{
-			"install",
-			name + "@" + tag,
-			"--prefix",
-			".greenhouse",
-		}
-		cmd := exec.Command("npm", args...)
-		log.Printf("Running command and waiting for it to finish...")
-		if err := cmd.Run(); err != nil {
+	metadataPath := filepath.Join(".greenhouse", "metadata.json")
+	exists, err := existsFile(metadataPath)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		// load the metadata from a file
+		data, err := ioutil.ReadFile(metadataPath)
+		if err != nil {
 			panic(err)
 		}
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			panic(err)
+		}
+	} else {
+		metadata = &Metadata{
+			Sources: map[string]*Source{},
+			Output:  map[string]*SolcOutput{},
+		}
 	}
-	return nil
+
+	diffFiles, err := metadata.Diff(files)
+	if err != nil {
+		panic(err)
+	}
+
+	p.metadata2 = metadata
+	return diffFiles, nil
 }
 
 // Compile compiles the application
 func (p *Project) Compile() error {
-
-	cc := [][]string{
-		{"greenhouse", "testify.sol", soltestlib.GetSolcTest()},
-		{"greenhouse", "console.sol", soltestlib.GetConsoleLib()},
+	diffFiles, err := p.loadMetadata()
+	if err != nil {
+		panic(err)
 	}
-	for _, c := range cc {
-		// add the ds-test contract
-		sourcePath := filepath.Join(".greenhouse", "system", c[0])
-		if err := os.MkdirAll(sourcePath, 0755); err != nil {
+	if len(diffFiles) == 0 {
+		// nothing to compile
+		return nil
+	}
+
+	/*
+		cc := [][]string{
+			{"greenhouse", "testify.sol", soltestlib.GetSolcTest()},
+			{"greenhouse", "console.sol", soltestlib.GetConsoleLib()},
+		}
+		for _, c := range cc {
+			// add the ds-test contract
+			sourcePath := filepath.Join(".greenhouse", "system", c[0])
+			if err := os.MkdirAll(sourcePath, 0755); err != nil {
+				panic(err)
+			}
+			if err := ioutil.WriteFile(filepath.Join(sourcePath, c[1]), []byte(c[2]), 0644); err != nil {
+				panic(err)
+			}
+		}
+	*/
+
+	/*
+		if err := p.loadDependencies(); err != nil {
+			return err
+		}
+	*/
+
+	// source files
+	sources2 := p.metadata2.Sources
+
+	fmt.Println("-- diff --")
+	fmt.Println(diffFiles)
+
+	remappings := map[string]string{}
+
+	// detect dependencies / ONLY DO THIS FOR NEW/MOD FILES
+	diffSources := []*Source{}
+	for _, f := range diffFiles {
+		if f.Type == FileDiffDel {
+			continue
+		}
+		content, err := ioutil.ReadFile(f.Path)
+		if err != nil {
 			panic(err)
 		}
-		if err := ioutil.WriteFile(filepath.Join(sourcePath, c[1]), []byte(c[2]), 0644); err != nil {
-			panic(err)
+
+		// only process add and delete files. Check again
+		// imports, pragma and dependencies.
+		// For now we update the full source list files?
+		// Consider that we are overriding the other!
+		imports := parseDependencies(string(content))
+		cleanImports := []string{}
+
+		fmt.Println("--- file ", f.Path)
+		fmt.Println(imports)
+
+		// this is the parent path of this file, we have to resolve all the import
+		// files with respect to this parent
+		parentPath := filepath.Dir(f.Path)
+
+		// clean the imports so that we can convert
+		// ./d.sol to ./contracts/d.sol wrt the contracts repo
+		for _, im := range imports {
+			// local
+			if !strings.HasPrefix(im, ".") {
+				fmt.Println(im)
+				if fullPath, ok := p.remappings[im]; ok {
+					remappings[im] = fullPath
+				} else {
+					// imported file
+					panic("UNIVERSTAL PATH TODO")
+				}
+			} else {
+				cleanImports = append(cleanImports, filepath.Join(parentPath, im))
+			}
 		}
+
+		src := &Source{
+			Imports: cleanImports,
+			Version: parsePragma(string(content)),
+			ModTime: f.Mod,
+			Path:    f.Path,
+			Hash:    hash(string(content)),
+		}
+		sources2[f.Path] = src
+		diffSources = append(diffSources, src)
 	}
 
-	if err := p.loadDependencies(); err != nil {
-		return err
+	fmt.Println("_ LIST SOURCES _")
+	for _, f := range sources2 {
+		fmt.Println("---")
+		fmt.Println(f.Path)
+		fmt.Println(f.Imports)
 	}
 
-	dirMap := map[string]*File{}
-	for _, f := range p.dir.Files {
-		dirMap[f.Path] = f
-	}
-
-	// detect dependencies
-	for _, f := range p.dir.Files {
-		f.DependsOn = parseDependencies(f.Content)
-		f.Pragma = parsePragma(f.Content)
-	}
-
-	// build dag map
+	// build dag map (move this to own repo)
 	dd := &dag.Dag{}
-	for _, f := range p.dir.Files {
+	for _, f := range sources2 {
 		dd.AddVertex(f)
 	}
 	// add edges
-	for _, src := range p.dir.Files {
-		for _, dst := range src.DependsOn {
+	for _, src := range sources2 {
+		for _, dst := range src.Imports {
+			dst, ok := sources2[dst]
+			if !ok {
+				fmt.Println(dst)
+				panic("BUG")
+			}
 			dd.AddEdge(dag.Edge{
 				Src: src,
-				Dst: dirMap[dst],
+				Dst: dst,
 			})
 		}
 	}
 
-	for _, f := range p.dir.Files {
-		fmt.Println("---")
-		fmt.Println(f.Path)
-		fmt.Println(f.DependsOn)
-	}
+	rawComponents := dd.FindComponents()
 
-	fmt.Println("-- find components --")
-
-	// find components in the dag
-	components := findComponents(dirMap, dd)
-
-	fmt.Println(components)
-
-	sources := map[string]*Source{}
-	outputs := []*Output{}
-	for _, comp := range components {
-
-		pathFiles := []*File{}
-		paths := []string{}
-		for _, p := range comp {
-			pathFiles = append(pathFiles, dirMap[p])
-			paths = append(paths, dirMap[p].RealPath)
-		}
-
-		// get version for this..
-		var versionPragma []string
-		for _, ff := range pathFiles {
-			for _, i := range strings.Split(ff.Pragma[0], " ") {
-				if !contains(versionPragma, i) {
-					versionPragma = append(versionPragma, i)
+	components := [][]string{}
+	for _, comp := range rawComponents {
+		// if any of the components of component are in diffSources
+		// we have to recompile this component
+		found := false
+		for _, i := range comp {
+			for _, j := range diffSources {
+				if i == j {
+					found = true
 				}
 			}
 		}
+		if found {
+			subComp := []string{}
+			for _, i := range comp {
+				subComp = append(subComp, i.(*Source).Path)
+			}
+			components = append(components, subComp)
+		}
+	}
 
-		fmt.Println("-- versionPragma --")
-		fmt.Println(versionPragma)
+	fmt.Println("-- real components --")
+	fmt.Println(components)
 
-		solidityVersion, err := version.NewVersion(p.config.Solidity)
+	// solidity version we use to compile
+	solidityVersion, err := version.NewVersion(p.config.Solidity)
+	if err != nil {
+		panic(err)
+	}
+
+	contracts := map[string]*solidity.Artifact{}
+	//outputs := map[string]*SolcOutput{}
+
+	// generate the outputs and compile
+	for _, comp := range components {
+		fmt.Println("-- component --")
+		fmt.Println(comp)
+
+		pragmas := []string{}
+		for _, i := range comp {
+			pragmas = append(pragmas, strings.Split(sources2[i].Version[0], " ")...)
+		}
+		pragmas = unique(pragmas)
+
+		versionConstraint, err := version.NewConstraint(strings.Join(pragmas, ", "))
 		if err != nil {
 			panic(err)
 		}
-		versionConstraint, err := version.NewConstraint(strings.Join(versionPragma, ", "))
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Println("---")
-		fmt.Println(solidityVersion)
-		fmt.Println(versionConstraint)
-
 		if !versionConstraint.Check(solidityVersion) {
-			panic("not match")
+			panic("not match in solidity compiler")
 		}
 
-		remapping := map[string]string{
-			"@openzeppelin/contracts": "/home/ferran/go/src/github.com/umbracle/greenhouse/.greenhouse/node_modules/@openzeppelin/contracts",
-			"greenhouse":              "/home/ferran/go/src/github.com/umbracle/greenhouse/.greenhouse/system/greenhouse",
+		// compile
+		input := &solidity.Input{
+			Version:    solidityVersion.String(),
+			Files:      comp,
+			Remappings: remappings,
 		}
-		output, err := p.compileImpl(solidityVersion.String(), paths, remapping)
+		output, err := p.svm.Compile(input)
 		if err != nil {
 			return err
 		}
 
-		outputs = append(outputs, output)
+		id := uuid.New()
+		out := &SolcOutput{
+			Id:     id.String(),
+			Output: output,
+		}
+		p.metadata2.Output[id.String()] = out
 
-		for name, x := range output.Sources {
-			if _, ok := sources[name]; ok {
-				continue
-			}
+		for _, i := range comp {
+			sources2[i].BuildInfo = id.String()
+		}
 
-			contractNames := []string{}
-			x.AST.Visit(ASTContractDefinition, func(n *ASTNode) {
-				contractNames = append(contractNames, n.GetAttribute("name").(string))
-			})
-
-			artifacts := []*Contract{}
-			for _, cc := range contractNames {
-				res, ok := output.Contracts[name+":"+cc]
-				if !ok {
-					panic("not found?")
-				}
-				artifacts = append(artifacts, &Contract{
-					Name:     cc,
-					Artifact: res,
-				})
-			}
-			sources[name] = &Source{
-				Path:      name,
-				ModTime:   time.Now(),
-				AST:       x.AST,
-				Contract:  artifacts,
-				Artifacts: contractNames,
-				Imports:   paths,
-			}
+		// what else do we do here?
+		for name, c := range output.Contracts {
+			contracts[name] = c
 		}
 	}
-
-	fmt.Println("-- outputs --")
-	fmt.Println(outputs)
 
 	{
-		xx := map[string]*Source1{}
-		for k, v := range sources {
-			fmt.Println("ZZZZZZZ")
-			fmt.Println(v.Artifacts, v.X().Artifacts)
-			xx[k] = v.X()
-		}
-		data, err := json.Marshal(xx)
-		if err != nil {
-			panic(err)
-		}
-		if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), data, 0644); err != nil {
-			panic(err)
-		}
-	}
+		// write artifacts!
+		for name, contract := range contracts {
+			// name has the format <path>:<contract>
+			// remove the contract name
+			spl := strings.Split(name, ":")
+			path, name := spl[0], spl[1]
 
-	for name, src := range sources {
-		sourcePath := filepath.Join(".greenhouse", "contracts", name)
-		if err := os.MkdirAll(sourcePath, 0755); err != nil {
-			panic(err)
-		}
-		for _, cc := range src.Contract {
-			data, err := json.Marshal(cc.Artifact)
+			fmt.Println("--xx")
+			fmt.Println(path)
+
+			if strings.HasPrefix(path, p.remapDir) {
+				// this comes from remap its an address of type '/home/.../greenhouse/Console.sol'
+				// we have to remove that mapping
+				path = strings.TrimPrefix(path, p.remapDir)
+			}
+			// remove the contracts path in the destination name
+			sourcePath := filepath.Join(".greenhouse", path)
+			if err := os.MkdirAll(sourcePath, 0755); err != nil {
+				panic(err)
+			}
+
+			// write the file
+			raw, err := json.Marshal(contract)
 			if err != nil {
 				panic(err)
 			}
-			if err := ioutil.WriteFile(filepath.Join(sourcePath, cc.Name+".json"), data, 0644); err != nil {
+			if err := ioutil.WriteFile(filepath.Join(sourcePath, name+".json"), raw, 0644); err != nil {
 				panic(err)
 			}
 		}
 	}
 
-	p.metadata = sources
-	return nil
-}
+	{
+		// write metadata!
 
-func (p *Project) compileImpl(version string, files []string, remapping map[string]string) (*Output, error) {
-	if !p.svm.Exists(version) {
-		fmt.Printf("Downloading compiler: %s\n", version)
+		// clean any extra output that is not references anymore
+		deleteNames := []string{}
+		for name := range p.metadata2.Output {
+			found := false
+			for _, src := range p.metadata2.Sources {
+				if src.BuildInfo == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				deleteNames = append(deleteNames, name)
+			}
+		}
+		for _, name := range deleteNames {
+			delete(p.metadata2.Output, name)
+		}
 
-		if err := p.svm.Download(version); err != nil {
+		raw, err := json.Marshal(p.metadata2)
+		if err != nil {
+			panic(err)
+		}
+		if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), raw, 0644); err != nil {
 			panic(err)
 		}
 	}
 
-	path := p.svm.Path(version)
-
-	args := []string{
-		"--combined-json",
-		"bin,bin-runtime,srcmap-runtime,abi,srcmap,ast",
-	}
-	if len(remapping) != 0 {
-		for k, v := range remapping {
-			args = append(args, k+"="+v)
-		}
-	}
-	if len(files) != 0 {
-		args = append(args, files...)
-	}
-
-	fmt.Println("-- args --")
-	fmt.Println(args)
-
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(path, args...)
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to compile: %s", stderr.String())
-	}
-
-	fmt.Println(stdout.String())
-
-	var output *Output
-	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
-		return nil, err
-	}
-	return output, nil
-}
-
-func findComponents(dirMap map[string]*File, d *dag.Dag) [][]string {
-	checked := map[string]struct{}{}
-
-	var walk func(f *File) []string
-	walk = func(f *File) (res []string) {
-		if _, ok := checked[f.Path]; ok {
-			return
-		}
-
-		checked[f.Path] = struct{}{}
-
-		res = append(res, f.Path)
-		for _, v := range d.GetOutbound(f) {
-			if v.(*File) != nil {
-				res = append(res, walk(v.(*File))...)
-			}
-		}
-		for _, v := range d.GetInbound(f) {
-			if v.(*File) != nil {
-				res = append(res, walk(v.(*File))...)
-			}
-		}
-
-		return
-	}
-
-	components := [][]string{}
-
-	for name, m := range dirMap {
-		//fmt.Println("----- xx ------")
-		//fmt.Println(name)
-		//fmt.Println(checked)
-
-		// for this file find all the dependencies
-		if _, ok := checked[name]; ok {
-			continue
-		}
-
-		// for this file find all the components connected
-		res := walk(m)
-
-		components = append(components, res)
-
-	}
-
-	//fmt.Println("-- components --")
-	//fmt.Println(components)
-
-	return components
+	return nil
 }
 
 var (
-	importRegexp = regexp.MustCompile(`import "(.*)"`)
+	importRegexp = regexp.MustCompile(`import (".*"|'.*')`)
 	pragmaRegexp = regexp.MustCompile(`pragma\s+solidity\s+(.*);`)
 )
 
 func parseDependencies(contract string) []string {
-	res := importRegexp.FindStringSubmatch(contract)
+	res := importRegexp.FindAllStringSubmatch(contract, -1)
 	if len(res) == 0 {
 		return []string{}
 	}
-	return res[1:]
+
+	clean := []string{}
+	for _, j := range res {
+		i := j[1]
+		i = strings.Trim(i, "'")
+		i = strings.Trim(i, "\"")
+		clean = append(clean, i)
+	}
+	return clean
 }
 
 func parsePragma(contract string) []string {
@@ -357,43 +353,18 @@ func parsePragma(contract string) []string {
 	return res[1:]
 }
 
-type ASTType string
-
-var (
-	ASTContractDefinition ASTType = "ContractDefinition"
-)
-
-type ASTNode struct {
-	Children   []*ASTNode             `json:"children"`
-	Name       ASTType                `json:"name"`
-	Src        string                 `json:"src"`
-	Id         int                    `json:"id"`
-	Attributes map[string]interface{} `json:"attributes"`
-}
-
-func (a *ASTNode) GetAttributeOk(name string) (interface{}, bool) {
-	k, v := a.Attributes[name]
-	return k, v
-}
-
-func (a *ASTNode) GetAttribute(name string) interface{} {
-	return a.Attributes[name]
-}
-
-func (a *ASTNode) Visit(name ASTType, handler func(n *ASTNode)) {
-	if a.Name == name {
-		handler(a)
-	}
-	for _, child := range a.Children {
-		child.Visit(name, handler)
-	}
-}
-
-func contains(s []string, i string) bool {
-	for _, j := range s {
-		if j == i {
-			return true
+func unique(a []string) []string {
+	b := []string{}
+	for _, i := range a {
+		found := false
+		for _, j := range b {
+			if i == j {
+				found = true
+			}
+		}
+		if !found {
+			b = append(b, i)
 		}
 	}
-	return false
+	return b
 }
