@@ -3,7 +3,9 @@ module github.com/umbracle/greenhouse
 go 1.17
 
 require (
+	github.com/ethereum/evmc/v10 v10.0.0-alpha.3
 	github.com/hashicorp/go-hclog v1.0.0
+	github.com/hashicorp/go-memdb v1.3.2
 	github.com/hashicorp/go-version v1.3.0
 	github.com/hashicorp/hcl v1.0.0
 	github.com/imdario/mergo v0.3.12
@@ -14,6 +16,7 @@ require (
 require (
 	github.com/google/uuid v1.3.0
 	github.com/spf13/pflag v1.0.5
+	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3
 )
 
 require (
@@ -25,7 +28,10 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/go-immutable-radix v1.3.1 // indirect
 	github.com/hashicorp/go-multierror v1.0.0 // indirect
+	github.com/hashicorp/go-uuid v1.0.1 // indirect
+	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
@@ -34,7 +40,6 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/posener/complete v1.1.1 // indirect
-	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
 	golang.org/x/sys v0.0.0-20210816183151-1e6c022a8912 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
