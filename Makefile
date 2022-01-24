@@ -6,4 +6,4 @@ download-spec-tests:
 
 .PHONY: tests
 tests:
-	go test -v ./...
+	go test -v ./... -test.short
