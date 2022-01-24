@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/mitchellh/cli"
+	"github.com/mitchellh/colorstring"
 	flag "github.com/spf13/pflag"
 	"github.com/umbracle/greenhouse/internal/core"
 )
@@ -48,4 +49,14 @@ func (b *baseCommand) Init() error {
 	}
 	b.project = p
 	return nil
+}
+
+func (b *baseCommand) Colorize() *colorstring.Colorize {
+	_, coloredUi := b.UI.(*cli.ColoredUi)
+
+	return &colorstring.Colorize{
+		Colors:  colorstring.DefaultColors,
+		Disable: !coloredUi,
+		Reset:   true,
+	}
 }

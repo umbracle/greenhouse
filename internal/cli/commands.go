@@ -14,7 +14,12 @@ func Commands() map[string]cli.CommandFactory {
 	}
 
 	baseCommand := &baseCommand{
-		UI: ui,
+		UI: &cli.ColoredUi{
+			ErrorColor: cli.UiColorRed,
+			WarnColor:  cli.UiColorYellow,
+			InfoColor:  cli.UiColorGreen,
+			Ui:         ui,
+		},
 	}
 	return map[string]cli.CommandFactory{
 		"build": func() (cli.Command, error) {
@@ -24,6 +29,11 @@ func Commands() map[string]cli.CommandFactory {
 		},
 		"clean": func() (cli.Command, error) {
 			return &CleanCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
+		"test": func() (cli.Command, error) {
+			return &TestCommand{
 				baseCommand: baseCommand,
 			}, nil
 		},
