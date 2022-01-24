@@ -15,6 +15,7 @@ require (
 	github.com/ethereum/evmc/v10 v10.0.0-alpha.3
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-immutable-radix v1.3.1
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db
 	github.com/spf13/pflag v1.0.5
 	github.com/umbracle/fastrlp v0.0.0-20211229195328-c1416904ae17
 	github.com/umbracle/go-eth-bn256 v0.0.0-20190607160430-b36caf4e0f6b
@@ -41,6 +42,7 @@ require (
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mattn/go-isatty v0.0.10 // indirect
 	github.com/mitchellh/copystructure v1.0.0 // indirect
+	github.com/mitchellh/mapstructure v1.1.2 // indirect
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/posener/complete v1.1.1 // indirect

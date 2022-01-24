@@ -1,5 +1,7 @@
 package cli
 
+import "fmt"
+
 // TestCommand is the command to test the Solidity project
 type TestCommand struct {
 	*baseCommand
@@ -29,9 +31,20 @@ func (b *TestCommand) Run(args []string) int {
 		b.UI.Error(err.Error())
 		return 1
 	}
-	if err := b.project.Test(); err != nil {
+	outputs, err := b.project.Test()
+	if err != nil {
 		b.UI.Error(err.Error())
 		return 1
+	}
+
+	for _, o := range outputs {
+		res := ""
+		if o.Output.Success {
+			res = "[green]success[reset]"
+		} else {
+			res = "[red]failed[reset]"
+		}
+		b.UI.Output(b.Colorize().Color(fmt.Sprintf("  %s:%s:%s (%s)", o.Source, o.Contract, o.Method, res)))
 	}
 	return 0
 }
