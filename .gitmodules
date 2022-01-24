@@ -1,0 +1,3 @@
+[submodule "internal/runtime/tests/tests"]
+	path = internal/runtime/tests/tests
+	url = https://github.com/ethereum/tests
