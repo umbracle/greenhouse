@@ -73,6 +73,8 @@ func (p *Project) Compile() error {
 
 	sources := p.state.Sources
 
+	remappings := map[string]string{}
+
 	// detect dependencies only for new and modified files
 	diffSources := []*Source{}
 	for _, f := range diffFiles {
@@ -93,7 +95,12 @@ func (p *Project) Compile() error {
 		for _, im := range imports {
 			// local
 			if !strings.HasPrefix(im, ".") {
-				return fmt.Errorf("absolute paths cannot be resolved yet")
+				// absolute path, check if we can resolve it using the remappings
+				if fullPath, exists := p.remappings[im]; exists {
+					remappings[im] = fullPath
+				} else {
+					return fmt.Errorf("absolute paths cannot be resolved yet")
+				}
 			} else {
 				cleanImports = append(cleanImports, filepath.Join(parentPath, im))
 			}
@@ -178,8 +185,9 @@ func (p *Project) Compile() error {
 
 		// compile
 		input := &solidity.Input{
-			Version: solidityVersion.String(),
-			Files:   comp,
+			Version:    solidityVersion.String(),
+			Files:      comp,
+			Remappings: remappings,
 		}
 		output, err := p.sol.Compile(input)
 		if err != nil {
@@ -208,6 +216,9 @@ func (p *Project) Compile() error {
 			// remove the contract name
 			spl := strings.Split(name, ":")
 			path, name := spl[0], spl[1]
+
+			// trim the lib directory from the path (if exists)
+			path = strings.TrimPrefix(path, p.libDirectory)
 
 			// remove the contracts path in the destination name
 			sourcePath := filepath.Join(".greenhouse", path)
