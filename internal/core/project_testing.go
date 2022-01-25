@@ -71,7 +71,10 @@ func (p *Project) Test() ([]*TestOutput, error) {
 	key, _ := wallet.GenerateKey()
 	sender := key.Address()
 
-	txn := state.NewTransition(evmc.Istanbul, state.TxContext{}, &state.EmptyState{})
+	opts := []state.ConfigOption{
+		state.WithRevision(evmc.Istanbul),
+	}
+	txn := state.NewTransition(opts...)
 
 	targetsByAddr := map[web3.Address]*testTarget{}
 	for _, target := range targets {
