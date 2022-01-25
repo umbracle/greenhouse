@@ -13,6 +13,7 @@ import (
 	"github.com/umbracle/go-web3/wallet"
 	state "github.com/umbracle/greenhouse/internal/runtime"
 	"github.com/umbracle/greenhouse/internal/solidity"
+	"github.com/umbracle/greenhouse/internal/standard"
 )
 
 type testTarget struct {
@@ -27,6 +28,7 @@ type TestOutput struct {
 	Source   string
 	Contract string
 	Method   string
+	Console  []*ConsoleOutput
 	Output   *state.Output
 }
 
@@ -71,7 +73,14 @@ func (p *Project) Test() ([]*TestOutput, error) {
 	key, _ := wallet.GenerateKey()
 	sender := key.Address()
 
-	txn := state.NewTransition(evmc.Istanbul, state.TxContext{}, &state.EmptyState{})
+	console := &consoleCheatcode{}
+	console.reset()
+
+	opts := []state.ConfigOption{
+		state.WithRevision(evmc.Istanbul),
+		state.WithCheatcode(console),
+	}
+	txn := state.NewTransition(opts...)
 
 	targetsByAddr := map[web3.Address]*testTarget{}
 	for _, target := range targets {
@@ -124,9 +133,54 @@ func (p *Project) Test() ([]*TestOutput, error) {
 				Contract: target.Name,
 				Method:   method,
 				Output:   output,
+				Console:  console.outputs,
 			})
+			console.reset()
 		}
 	}
 
 	return result, nil
+}
+
+type ConsoleOutput struct {
+	Err error
+	Val []string
+}
+
+type consoleCheatcode struct {
+	outputs []*ConsoleOutput
+}
+
+func (c *consoleCheatcode) CanRun(addr evmc.Address) bool {
+	return hex.EncodeToString(addr[:]) == "000000000000000000636f6e736f6c652e6c6f67"
+}
+
+func (c *consoleCheatcode) reset() {
+	c.outputs = []*ConsoleOutput{}
+}
+
+func (c *consoleCheatcode) addError(err error) {
+	c.outputs = append(c.outputs, &ConsoleOutput{Err: err})
+}
+
+func (c *consoleCheatcode) Run(addr evmc.Address, input []byte) {
+	sig := hex.EncodeToString(input[:4])
+	logSig, ok := standard.LogCases[sig]
+	if !ok {
+		c.addError(fmt.Errorf("sig %s not found", sig))
+		return
+	}
+	input = input[4:]
+	raw, err := logSig.Decode(input)
+	if err != nil {
+		c.addError(fmt.Errorf("failed to decode: %v", err))
+		return
+	}
+	val := []string{}
+	for _, v := range raw.(map[string]interface{}) {
+		val = append(val, fmt.Sprint(v))
+	}
+	c.outputs = append(c.outputs, &ConsoleOutput{
+		Val: val,
+	})
 }

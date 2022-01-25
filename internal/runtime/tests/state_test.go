@@ -90,7 +90,13 @@ func RunSpecificTest(file string, t *testing.T, c stateCase, name, fork string, 
 	runtimeCtx.ChainID = 1
 
 	wr := newWrapper(c.Pre)
-	transition := state.NewTransition(rev, runtimeCtx, wr)
+
+	opts := []state.ConfigOption{
+		state.WithRevision(rev),
+		state.WithContext(runtimeCtx),
+		state.WithState(wr),
+	}
+	transition := state.NewTransition(opts...)
 
 	result, err := transition.Write(msg)
 	assert.NoError(t, err)

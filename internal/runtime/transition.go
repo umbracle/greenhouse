@@ -7,7 +7,6 @@ import (
 	"math/big"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
-	"github.com/umbracle/go-web3"
 	"github.com/umbracle/greenhouse/internal/runtime/evm"
 )
 
@@ -22,22 +21,14 @@ const (
 )
 
 // getHashByNumber returns the hash function of a block number
-type getHashByNumber = func(i uint64) evmc.Hash
-
-type getHashByNumberHelper = func(num uint64, hash evmc.Hash) getHashByNumber
+type GetHashByNumber = func(i uint64) evmc.Hash
 
 type Transition struct {
-	// forks are the enabled forks for this transition
-	rev evmc.Revision
-
 	// txn is the transaction of changes
 	txn *Txn
 
-	// ctx is the block context
-	ctx TxContext
-
-	// GetHash getHashByNumberHelper
-	GetHash getHashByNumber
+	// parametrization of the transition
+	config *Config
 }
 
 // TxContext is the context of the transaction
@@ -54,32 +45,24 @@ type TxContext struct {
 }
 
 // NewExecutor creates a new executor
-func NewTransition(rev evmc.Revision, ctx TxContext, snap Snapshot) *Transition {
-	txn := NewTxn(snap)
-	txn.rev = rev
+func NewTransition(opts ...ConfigOption) *Transition {
+	config := DefaultConfig()
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	txn := NewTxn(config.State)
+	txn.rev = config.Rev
 
 	transition := &Transition{
-		ctx: ctx,
-		txn: txn,
-		rev: rev,
+		config: config,
+		txn:    txn,
 	}
-
-	// by default for getHash use a simple one
-	transition.GetHash = func(n uint64) (res evmc.Hash) {
-		hash := web3.Keccak256([]byte(big.NewInt(int64(n)).String()))
-		copy(res[:], hash)
-		return
-	}
-
 	return transition
 }
 
 func (e *Transition) Commit() []*Object {
 	return e.txn.Commit()
-}
-
-func (t *Transition) SetgetHash(helper getHashByNumberHelper) {
-	t.GetHash = helper(uint64(t.ctx.Number), t.ctx.Hash)
 }
 
 func (t *Transition) Txn() *Txn {
@@ -115,7 +98,7 @@ func (t *Transition) applyImpl(msg *Message) (*Output, error) {
 }
 
 func (t *Transition) isRevision(rev evmc.Revision) bool {
-	return rev <= t.rev
+	return rev <= t.config.Rev
 }
 
 func (t *Transition) preCheck(msg *Message) error {
@@ -187,7 +170,7 @@ func (t *Transition) postCheck(msg *Message, output *Output) {
 
 	// pay the coinbase for the transaction
 	coinbaseFee := new(big.Int).Mul(new(big.Int).SetUint64(gasUsed), gasPrice)
-	t.txn.AddBalance(t.ctx.Coinbase, coinbaseFee)
+	t.txn.AddBalance(t.config.Ctx.Coinbase, coinbaseFee)
 }
 
 func (t *Transition) Apply(msg *Message) *Output {
@@ -195,8 +178,8 @@ func (t *Transition) Apply(msg *Message) *Output {
 	value := new(big.Int).Set(msg.Value)
 
 	// Override the context and set the specific transaction fields
-	t.ctx.GasPrice = bytesToHash(gasPrice.Bytes())
-	t.ctx.Origin = msg.From
+	t.config.Ctx.GasPrice = bytesToHash(gasPrice.Bytes())
+	t.config.Ctx.Origin = msg.From
 
 	var retValue []byte
 	var gasLeft int64
@@ -259,13 +242,21 @@ func (t *Transition) isPrecompiled(codeAddr evmc.Address) bool {
 }
 
 func (t *Transition) run(c *Contract) ([]byte, int64, error) {
+	// try to run a cheatcode first
+	for _, cheat := range t.config.Cheatcodes {
+		if cheat.CanRun(c.CodeAddress) {
+			cheat.Run(c.CodeAddress, c.Input)
+			// Do not consume any gas with the cheat codes
+			return nil, int64(c.Gas), nil
+		}
+	}
 	if t.isPrecompiled(c.CodeAddress) {
-		return runPrecompiled(c.CodeAddress, c.Input, c.Gas, t.rev)
+		return runPrecompiled(c.CodeAddress, c.Input, c.Gas, t.config.Rev)
 	}
 
 	evm := evm.EVM{
 		Host: t,
-		Rev:  t.rev,
+		Rev:  t.config.Rev,
 	}
 	return evm.Run(c.Type, c.Address, c.Caller, c.Value, c.Input, int64(c.Gas), c.Depth, c.Static, c.CodeAddress)
 }
@@ -397,24 +388,24 @@ func (t *Transition) SetStorage(addr evmc.Address, key evmc.Hash, value evmc.Has
 }
 
 func (t *Transition) GetTxContext() evmc.TxContext {
-	chainID := new(big.Int).SetInt64(t.ctx.ChainID)
+	chainID := new(big.Int).SetInt64(t.config.Ctx.ChainID)
 	cc := bytesToHash(chainID.Bytes())
 
 	ctx := evmc.TxContext{
-		GasPrice:   t.ctx.GasPrice,
-		Origin:     t.ctx.Origin,
-		Coinbase:   t.ctx.Coinbase,
-		Number:     t.ctx.Number,
-		Timestamp:  t.ctx.Timestamp,
-		GasLimit:   t.ctx.GasLimit,
-		Difficulty: t.ctx.Difficulty,
+		GasPrice:   t.config.Ctx.GasPrice,
+		Origin:     t.config.Ctx.Origin,
+		Coinbase:   t.config.Ctx.Coinbase,
+		Number:     t.config.Ctx.Number,
+		Timestamp:  t.config.Ctx.Timestamp,
+		GasLimit:   t.config.Ctx.GasLimit,
+		Difficulty: t.config.Ctx.Difficulty,
 		ChainID:    cc,
 	}
 	return ctx
 }
 
 func (t *Transition) GetBlockHash(number int64) (res evmc.Hash) {
-	return t.GetHash(uint64(number))
+	return t.config.GetHash(uint64(number))
 }
 
 func (t *Transition) EmitLog(addr evmc.Address, topics []evmc.Hash, data []byte) {

@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/umbracle/greenhouse/internal/solidity"
+	"github.com/umbracle/greenhouse/internal/standard"
 )
 
 type Project struct {
@@ -22,12 +24,19 @@ type Project struct {
 
 	// state holds the structure of sources and contracts
 	state *State
+
+	// list of standard remapping contracts
+	remappings map[string]string
+
+	// path for the imported lib directory
+	libDirectory string
 }
 
 func NewProject(logger hclog.Logger, config *Config) (*Project, error) {
 	p := &Project{
-		logger: logger,
-		config: config,
+		logger:     logger,
+		config:     config,
+		remappings: map[string]string{},
 	}
 	if err := p.initSources(); err != nil {
 		return nil, err
@@ -37,8 +46,24 @@ func NewProject(logger hclog.Logger, config *Config) (*Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %v", err)
 	}
+	dirname = filepath.Join(dirname, ".greenhouse")
 
-	p.sol = solidity.NewSolidity(filepath.Join(dirname, ".greenhouse"))
+	p.sol = solidity.NewSolidity(dirname)
+
+	// write the standard contracts to system folder
+	libDir := filepath.Join(dirname, "lib")
+	for c, code := range standard.SystemContracts {
+		stanLib := filepath.Join(libDir, c)
+		if err := os.MkdirAll(filepath.Dir(stanLib), 0700); err != nil {
+			return nil, err
+		}
+		if err := ioutil.WriteFile(stanLib, []byte(code), 0755); err != nil {
+			return nil, err
+		}
+		p.remappings[c] = stanLib
+	}
+	p.libDirectory = libDir
+
 	return p, nil
 }
 
