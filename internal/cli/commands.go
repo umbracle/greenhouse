@@ -37,6 +37,11 @@ func Commands() map[string]cli.CommandFactory {
 				baseCommand: baseCommand,
 			}, nil
 		},
+		"lsp": func() (cli.Command, error) {
+			return &LspCommand{
+				UI: ui,
+			}, nil
+		},
 		"init": func() (cli.Command, error) {
 			return &InitCommand{
 				UI: ui,

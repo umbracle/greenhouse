@@ -5,25 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 )
 
 type Solidity struct {
 	// Destination folder for solidity compiler downloads
 	Dst string
-
-	// channel to sync concurrent solidity downloads
-	downloaderLock sync.Mutex
-	downloaderCh   map[string]chan struct{}
 }
 
 func NewSolidity(dir string) *Solidity {
 	return &Solidity{
-		Dst:          dir,
-		downloaderCh: map[string]chan struct{}{},
+		Dst: dir,
 	}
 }
 
@@ -32,24 +29,80 @@ func (s *Solidity) download(version string) error {
 		return nil
 	}
 
-	// check if we are already downloading it
-	s.downloaderLock.Lock()
-	ch, ok := s.downloaderCh[version]
-	if !ok {
-		ch = make(chan struct{})
-		defer close(ch)
+	// download the compiler since no one is doing it already
+	if err := downloadSolidity(version, s.Dst); err != nil {
+		return err
+	}
+	return nil
+}
 
-		s.downloaderCh[version] = ch
-		s.downloaderLock.Unlock()
+func downloadSolidity(version string, dst string) error {
+	url := "https://github.com/ethereum/solidity/releases/download/v" + version + "/solc-static-linux"
 
-		// download the compiler since no one is doing it already
-		if err := downloadSolidity(version, s.Dst); err != nil {
-			return err
+	// check if the dst is correct
+	exists := false
+	fi, err := os.Stat(dst)
+	if err == nil {
+		switch mode := fi.Mode(); {
+		case mode.IsDir():
+			exists = true
+		case mode.IsRegular():
+			return fmt.Errorf("dst is a file")
 		}
 	} else {
-		<-ch
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to stat dst '%s': %v", dst, err)
+		}
 	}
 
+	// create the destiny path if does not exists
+	if !exists {
+		if err := os.MkdirAll(dst, 0755); err != nil {
+			return fmt.Errorf("cannot create dst path: %v", err)
+		}
+	}
+
+	// rename binary
+	name := "solidity-" + version
+
+	// tmp folder to download the binary
+	tmpDir, err := ioutil.TempDir(dst, "solc-download-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	path := filepath.Join(tmpDir, name)
+
+	// Get the data
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return err
+	}
+
+	// make binary executable
+	if err := os.Chmod(path, 0755); err != nil {
+		return err
+	}
+
+	// move file to dst
+	if err := os.Rename(path, filepath.Join(dst, name)); err != nil {
+		return err
+	}
 	return nil
 }
 

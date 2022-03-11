@@ -14,7 +14,9 @@ require (
 
 require (
 	github.com/0xPolygon/eth-state-transition v0.0.0-20220112205905-11f288a4b5d3
+	github.com/creachadair/jrpc2 v0.35.2
 	github.com/google/uuid v1.3.0
+	github.com/mitchellh/go-homedir v1.1.0
 	github.com/spf13/pflag v1.0.5
 )
 
@@ -42,11 +44,14 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/posener/complete v1.1.1 // indirect
+	github.com/spf13/afero v1.8.0 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/umbracle/fastrlp v0.0.0-20211229195328-c1416904ae17 // indirect
 	github.com/umbracle/go-eth-bn256 v0.0.0-20190607160430-b36caf4e0f6b // indirect
 	github.com/valyala/fastjson v1.4.1 // indirect
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	golang.org/x/sys v0.0.0-20210816183151-1e6c022a8912 // indirect
+	golang.org/x/text v0.3.6 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
