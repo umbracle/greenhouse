@@ -37,6 +37,11 @@ func Commands() map[string]cli.CommandFactory {
 				baseCommand: baseCommand,
 			}, nil
 		},
+		"fmt": func() (cli.Command, error) {
+			return &FmtCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
 		"init": func() (cli.Command, error) {
 			return &InitCommand{
 				UI: ui,
