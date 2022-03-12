@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"path"
+	"strings"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/code"
@@ -14,6 +16,7 @@ import (
 	ilsp "github.com/umbracle/greenhouse/internal/langserver/lsp"
 	lsp "github.com/umbracle/greenhouse/internal/langserver/protocol"
 	"github.com/umbracle/greenhouse/internal/langserver/session"
+	"github.com/umbracle/greenhouse/internal/state"
 )
 
 type service struct {
@@ -26,6 +29,7 @@ type service struct {
 	stopSession context.CancelFunc
 	server      session.Server
 
+	state              *state.State
 	additionalHandlers map[string]rpch.Func
 }
 
@@ -55,12 +59,13 @@ func (svc *service) Assigner() (jrpc2.Assigner, error) {
 
 	err := session.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("Unable to prepare session: %w", err)
+		return nil, fmt.Errorf("unable to prepare session: %w", err)
 	}
 
 	lh := LogHandler(svc.logger)
 
 	cc := &lsp.ClientCapabilities{}
+	svc.state = state.NewState()
 
 	m := map[string]rpch.Func{
 		"initialize": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
@@ -101,16 +106,59 @@ func (svc *service) Assigner() (jrpc2.Assigner, error) {
 			*/
 			return handle(ctx, req, svc.TextDocumentCodeLens)
 		},
-		/*
-			"initialized": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
-				err := session.ConfirmInitialization(req)
-				if err != nil {
-					return nil, err
-				}
 
-				return handle(ctx, req, Initialized)
-			},
-		*/
+		"textDocument/definition": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
+			err := session.CheckInitializationIsConfirmed()
+			if err != nil {
+				return nil, err
+			}
+
+			ctx = ilsp.WithClientCapabilities(ctx, cc)
+
+			return handle(ctx, req, svc.GoToDefinition)
+		},
+
+		"textDocument/formatting": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
+			panic("formatting")
+		},
+
+		"textDocument/documentLink": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
+			err := session.CheckInitializationIsConfirmed()
+			if err != nil {
+				return nil, err
+			}
+
+			ctx = ilsp.WithClientCapabilities(ctx, cc)
+
+			return handle(ctx, req, svc.TextDocumentLink)
+		},
+
+		"textDocument/documentSymbol": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
+			err := session.CheckInitializationIsConfirmed()
+			if err != nil {
+				return nil, err
+			}
+
+			ctx = ilsp.WithClientCapabilities(ctx, cc)
+
+			return handle(ctx, req, svc.TextDocumentSymbol)
+		},
+
+		"textDocument/didChange": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
+			err := session.CheckInitializationIsConfirmed()
+			if err != nil {
+				return nil, err
+			}
+			return handle(ctx, req, svc.TextDocumentDidChange)
+		},
+		"textDocument/didOpen": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
+			err := session.CheckInitializationIsConfirmed()
+			if err != nil {
+				return nil, err
+			}
+			return handle(ctx, req, svc.TextDocumentDidOpen)
+		},
+
 		"textDocument/hover": func(ctx context.Context, req *jrpc2.Request) (interface{}, error) {
 			err := session.CheckInitializationIsConfirmed()
 			if err != nil {
@@ -129,6 +177,53 @@ func (svc *service) Assigner() (jrpc2.Assigner, error) {
 	}
 
 	return convertMap(m), nil
+}
+
+func HandleFromURI(docUri string) state.Handle {
+	filename := path.Base(docUri)
+	dirUri := strings.TrimSuffix(docUri, "/"+filename)
+
+	return state.Handle{
+		Dir:      strings.TrimPrefix(dirUri, "file://"),
+		Filename: filename,
+	}
+}
+
+func (svc *service) GoToDefinition(ctx context.Context, params lsp.TextDocumentPositionParams) (interface{}, error) {
+	return []lsp.Location{}, nil
+}
+
+func (svc *service) TextDocumentLink(ctx context.Context, params lsp.DocumentLinkParams) ([]lsp.DocumentLink, error) {
+	return []lsp.DocumentLink{}, nil
+}
+
+func (svc *service) TextDocumentSymbol(ctx context.Context, params lsp.DocumentSymbolParams) ([]lsp.DocumentSymbol, error) {
+	return []lsp.DocumentSymbol{{Name: "a", Kind: lsp.File}}, nil
+}
+
+func (svc *service) TextDocumentDidOpen(ctx context.Context, params lsp.DidOpenTextDocumentParams) error {
+	handle := HandleFromURI(string(params.TextDocument.URI))
+	fmt.Println("-- uri --", handle)
+
+	if err := svc.state.OpenDocument(handle, []byte(params.TextDocument.Text)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (svc *service) TextDocumentDidChange(ctx context.Context, params lsp.DidChangeTextDocumentParams) error {
+	handle := HandleFromURI(string(params.TextDocument.URI))
+	fmt.Println("-- uri --", handle)
+
+	doc, err := svc.state.GetDocument(handle)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("-- doc --")
+	fmt.Println(doc)
+
+	return nil
 }
 
 func Initialized(ctx context.Context, params lsp.InitializedParams) error {
