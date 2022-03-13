@@ -7,7 +7,15 @@ import { exec } from 'child_process';
 import * as path from 'path';
 import { workspace, ExtensionContext } from 'vscode';
 
+import * as vscode from 'vscode';
 import * as net from 'net';
+
+import { 
+	WorkspaceFolder, 
+	DebugConfiguration, 
+	ProviderResult, 
+	CancellationToken
+} from 'vscode';
 
 import {
 	LanguageClient,
@@ -21,14 +29,14 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-	// The server is implemented in node
-	const serverModule = context.asAbsolutePath(
-		path.join('server', 'out', 'server.js')
-	);
-	// The debug options for the server
-	// --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
-	const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
-	 
+
+	const factory = new MockDebugAdapterServerDescriptorFactory()
+	context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('mock', factory));
+	
+	// register a configuration provider for 'mock' debug type
+	const provider = new MockConfigurationProvider();
+	context.subscriptions.push(vscode.debug.registerDebugConfigurationProvider('mock', provider));
+	
 	/*
 	const executable: Executable = {
 		command: "node",
@@ -98,4 +106,62 @@ export function deactivate(): Thenable<void> | undefined {
 		return undefined;
 	}
 	return client.stop();
+}
+
+
+class MockConfigurationProvider implements vscode.DebugConfigurationProvider {
+
+	/**
+	 * Massage a debug configuration just before a debug session is being launched,
+	 * e.g. add all missing attributes to the debug configuration.
+	 */
+	resolveDebugConfiguration(folder: WorkspaceFolder | undefined, config: DebugConfiguration, token?: CancellationToken): ProviderResult<DebugConfiguration> {
+
+		// if launch.json is missing or empty
+		if (!config.type && !config.request && !config.name) {
+			config.type = 'mock';
+			config.name = 'Launch';
+			config.request = 'launch';
+			config.program = '${file}';
+			config.stopOnEntry = true;
+		}
+		
+		if (!config.program) {
+			return vscode.window.showInformationMessage("Cannot find a program to debug").then(_ => {
+				return undefined;	// abort launch
+			});
+		}
+		
+		return config;
+	}
+}
+
+class MockDebugAdapterServerDescriptorFactory implements vscode.DebugAdapterDescriptorFactory {
+
+	//private server?: Net.Server;
+
+	createDebugAdapterDescriptor(session: vscode.DebugSession, executable: vscode.DebugAdapterExecutable | undefined): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
+
+		/*
+		if (!this.server) {
+			// start listening on a random port
+			this.server = Net.createServer(socket => {
+				const session = new MockDebugSession(workspaceFileAccessor);
+				session.setRunAsServer(true);
+				session.start(socket as NodeJS.ReadableStream, socket);
+			}).listen(0);
+		}
+		*/
+
+		// make VS Code connect to debug server
+		return new vscode.DebugAdapterServer(4569);
+	}
+
+	dispose() {
+		/*
+		if (this.server) {
+			this.server.close();
+		}
+		*/
+	}
 }

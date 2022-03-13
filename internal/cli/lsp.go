@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 
 	"github.com/mitchellh/cli"
@@ -39,6 +40,8 @@ func (c *LspCommand) Run(args []string) int {
 	srv := langserver.NewLangServer(context.Background(), handlers.NewSession)
 	srv.SetLogger(log.New(os.Stdout, "", 0))
 
+	//go otherServer()
+
 	if port != 0 {
 		err := srv.StartTCP(fmt.Sprintf("localhost:%d", port))
 		if err != nil {
@@ -64,4 +67,26 @@ func (c *LspCommand) Run(args []string) int {
 	*/
 
 	return 0
+}
+
+func otherServer() {
+	lst, err := net.Listen("tcp", "localhost:4569")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("localhost:4569")
+	fmt.Println(lst.Addr())
+
+	for {
+		conn, err := lst.Accept()
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println("-- conn --")
+		fmt.Println(conn)
+
+		panic("X")
+	}
 }
