@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
 
+	"github.com/google/go-dap"
 	"github.com/mitchellh/cli"
 	"github.com/umbracle/greenhouse/internal/langserver"
 	"github.com/umbracle/greenhouse/internal/langserver/handlers"
@@ -40,7 +42,7 @@ func (c *LspCommand) Run(args []string) int {
 	srv := langserver.NewLangServer(context.Background(), handlers.NewSession)
 	srv.SetLogger(log.New(os.Stdout, "", 0))
 
-	//go otherServer()
+	go otherServer()
 
 	if port != 0 {
 		err := srv.StartTCP(fmt.Sprintf("localhost:%d", port))
@@ -87,6 +89,98 @@ func otherServer() {
 		fmt.Println("-- conn --")
 		fmt.Println(conn)
 
-		panic("X")
+		go func() {
+			defer conn.Close()
+			reader := bufio.NewReader(conn)
+
+			send := func(message dap.Message) {
+				if err := dap.WriteProtocolMessage(conn, message); err != nil {
+					panic(err)
+				}
+			}
+
+			for {
+				request, err := dap.ReadProtocolMessage(reader)
+				if err != nil {
+					panic(err)
+				}
+				fmt.Println("====================================> request --")
+				fmt.Println(request)
+
+				switch request := request.(type) {
+				case *dap.InitializeRequest: // Required
+					fmt.Println("A")
+					fmt.Println(request)
+
+					response := &dap.InitializeResponse{Response: *newResponse(request.Request)}
+					response.Body.SupportsConfigurationDoneRequest = true
+					response.Body.SupportsConditionalBreakpoints = true
+					response.Body.SupportsDelayedStackTraceLoading = true
+					response.Body.SupportTerminateDebuggee = true
+					response.Body.SupportsFunctionBreakpoints = true
+					response.Body.SupportsInstructionBreakpoints = true
+					response.Body.SupportsExceptionInfoRequest = true
+					response.Body.SupportsSetVariable = true
+					response.Body.SupportsEvaluateForHovers = true
+					response.Body.SupportsClipboardContext = true
+					response.Body.SupportsSteppingGranularity = true
+					response.Body.SupportsLogPoints = true
+					response.Body.SupportsDisassembleRequest = true
+					// TODO(polina): support these requests in addition to vscode-go feature parity
+					response.Body.SupportsTerminateRequest = false
+					response.Body.SupportsRestartRequest = false
+					response.Body.SupportsStepBack = false // To be enabled by CapabilitiesEvent based on configuration
+					response.Body.SupportsSetExpression = false
+					response.Body.SupportsLoadedSourcesRequest = false
+					response.Body.SupportsReadMemoryRequest = false
+					response.Body.SupportsCancelRequest = false
+
+					send(response)
+					return
+				case *dap.LaunchRequest: // Required
+					fmt.Println("B")
+
+					send(&dap.InitializedEvent{Event: *newEvent("initialized")})
+					send(&dap.LaunchResponse{Response: *newResponse(request.Request)})
+					return
+				case *dap.AttachRequest: // Required
+					fmt.Println("C")
+
+					send(&dap.InitializedEvent{Event: *newEvent("initialized")})
+					send(&dap.AttachResponse{Response: *newResponse(request.Request)})
+					return
+				case *dap.DisconnectRequest: // Required
+					panic("BAD")
+					return
+				case *dap.PauseRequest: // Required
+					panic("BAD")
+					return
+				default:
+					panic("BAD")
+				}
+			}
+		}()
+	}
+}
+
+func newEvent(event string) *dap.Event {
+	return &dap.Event{
+		ProtocolMessage: dap.ProtocolMessage{
+			Seq:  0,
+			Type: "event",
+		},
+		Event: event,
+	}
+}
+
+func newResponse(request dap.Request) *dap.Response {
+	return &dap.Response{
+		ProtocolMessage: dap.ProtocolMessage{
+			Seq:  0,
+			Type: "response",
+		},
+		Command:    request.Command,
+		RequestSeq: request.Seq,
+		Success:    true,
 	}
 }

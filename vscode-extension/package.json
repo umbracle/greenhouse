@@ -17,15 +17,27 @@
 		"vscode": "^1.43.0"
 	},
 	"activationEvents": [
-		"onLanguage:plaintext"
+		"onLanguage:solidity"
 	],
 	"main": "./client/out/extension",
 	"contributes": {
+		"languages": [
+			{
+				"id": "solidity",
+				"aliases": [
+					"Solidity",
+					"solidity"
+				],
+				"extensions": [
+					".sol"
+				]
+			}
+		],
 		"debuggers": [
 			{
 				"type": "mock",
 				"languages": [
-					"plaintext"
+					"solidity"
 				],
 				"label": "Mock Debug"
 			}

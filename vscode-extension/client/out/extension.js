@@ -5,19 +5,12 @@
  * ------------------------------------------------------------------------------------------ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deactivate = exports.activate = void 0;
-const path = require("path");
 const vscode_1 = require("vscode");
 const vscode = require("vscode");
 const net = require("net");
 const node_1 = require("vscode-languageclient/node");
 let client;
 function activate(context) {
-    // The server is implemented in node
-    const serverModule = context.asAbsolutePath(path.join('server', 'out', 'server.js'));
-    // The debug options for the server
-    // --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
-    const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
-    console.log("YYYYYYYYYYYYYYYYYYYYYYYYYY");
     const factory = new MockDebugAdapterServerDescriptorFactory();
     context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory('mock', factory));
     // register a configuration provider for 'mock' debug type
@@ -64,7 +57,7 @@ function activate(context) {
     // Options to control the language client
     const clientOptions = {
         // Register the server for plain text documents
-        documentSelector: [{ scheme: 'file', language: 'plaintext' }],
+        documentSelector: [{ scheme: 'file', language: 'solidity' }],
         synchronize: {
             // Notify the server about file changes to '.clientrc files contained in the workspace
             fileEvents: vscode_1.workspace.createFileSystemWatcher('**/.clientrc')
