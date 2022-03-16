@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strings"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
@@ -32,13 +33,25 @@ type TestOutput struct {
 	Output   *state.Output
 }
 
-func (p *Project) Test() ([]*TestOutput, error) {
+type TestInput struct {
+	Run string
+}
+
+func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 	if err := p.Compile(); err != nil {
 		return nil, err
 	}
 
 	targets := []*testTarget{}
 	visited := map[string]struct{}{}
+
+	runExpr, err := regexp.Compile(input.Run)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode 'run' regexp expr: %v", err)
+	}
+	isValidFunc := func(name string) bool {
+		return runExpr.Match([]byte(name))
+	}
 
 	for _, i := range p.state.Sources {
 		out := p.state.Output[i.BuildInfo]
@@ -60,6 +73,22 @@ func (p *Project) Test() ([]*TestOutput, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			// check if there is any contract that matches the regexp
+			validContract := false
+			for method := range contractABI.Methods {
+				if !strings.HasPrefix(method, "test") {
+					continue
+				}
+				if isValidFunc(method) {
+					validContract = true
+					break
+				}
+			}
+			if !validContract {
+				continue
+			}
+
 			targets = append(targets, &testTarget{
 				Source:   sourceName,
 				Name:     contractName,
@@ -114,6 +143,9 @@ func (p *Project) Test() ([]*TestOutput, error) {
 	for _, target := range targets {
 		for method, sig := range target.Abi.Methods {
 			if !strings.HasPrefix(method, "test") {
+				continue
+			}
+			if !isValidFunc(method) {
 				continue
 			}
 

@@ -5,12 +5,14 @@ import (
 	"strings"
 
 	flag "github.com/spf13/pflag"
+	"github.com/umbracle/greenhouse/internal/core"
 )
 
 // TestCommand is the command to test the Solidity project
 type TestCommand struct {
 	*baseCommand
 
+	run     string
 	verbose bool
 }
 
@@ -32,6 +34,7 @@ func (b *TestCommand) Flags() *flag.FlagSet {
 	flags := b.baseCommand.Flags("test")
 
 	flags.BoolVarP(&b.verbose, "verbose", "v", false, "Show in stdout the output of the test")
+	flags.StringVar(&b.run, "run", "", "Run specific files")
 
 	return flags
 }
@@ -49,7 +52,10 @@ func (b *TestCommand) Run(args []string) int {
 		return 1
 	}
 
-	outputs, err := b.project.Test()
+	input := &core.TestInput{
+		Run: b.run,
+	}
+	outputs, err := b.project.Test(input)
 	if err != nil {
 		b.UI.Error(err.Error())
 		return 1
