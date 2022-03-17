@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
-	"github.com/umbracle/go-web3"
+	"github.com/umbracle/ethgo"
 )
 
 type instruction func(c *state)
@@ -532,7 +532,7 @@ func opSha3(c *state) {
 	}
 
 	v := c.push1()
-	v.SetBytes(web3.Keccak256(c.tmp))
+	v.SetBytes(ethgo.Keccak256(c.tmp))
 }
 
 func opPop(c *state) {

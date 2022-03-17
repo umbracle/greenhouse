@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/umbracle/go-web3/abi"
+	"github.com/umbracle/ethgo/abi"
 	"github.com/umbracle/greenhouse/internal/solidity"
 )
 

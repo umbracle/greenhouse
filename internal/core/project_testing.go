@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
-	"github.com/umbracle/go-web3"
-	"github.com/umbracle/go-web3/abi"
-	"github.com/umbracle/go-web3/wallet"
+	"github.com/umbracle/ethgo"
+	"github.com/umbracle/ethgo/abi"
+	"github.com/umbracle/ethgo/wallet"
 	state "github.com/umbracle/greenhouse/internal/runtime"
 	"github.com/umbracle/greenhouse/internal/standard"
 	state2 "github.com/umbracle/greenhouse/internal/state"
@@ -20,7 +20,7 @@ import (
 type testTarget struct {
 	Source   string
 	Name     string
-	Addr     web3.Address
+	Addr     ethgo.Address
 	Abi      *abi.ABI
 	Contract *state2.Contract
 }
@@ -100,7 +100,7 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 	}
 	txn := state.NewTransition(opts...)
 
-	targetsByAddr := map[web3.Address]*testTarget{}
+	targetsByAddr := map[ethgo.Address]*testTarget{}
 	for _, target := range targets {
 		code, err := hex.DecodeString(target.Contract.Bin)
 		if err != nil {
@@ -124,7 +124,7 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 			return nil, fmt.Errorf("deployed code does not match")
 		}
 
-		target.Addr = web3.Address(output.ContractAddress)
+		target.Addr = ethgo.Address(output.ContractAddress)
 		targetsByAddr[target.Addr] = target
 	}
 

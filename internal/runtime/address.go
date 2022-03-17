@@ -2,8 +2,8 @@ package state
 
 import (
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
+	"github.com/umbracle/ethgo"
 	"github.com/umbracle/fastrlp"
-	"github.com/umbracle/go-web3"
 )
 
 // createAddress creates an Ethereum address.
@@ -15,7 +15,7 @@ func createAddress(addr evmc.Address, nonce uint64) (res evmc.Address) {
 	v.Set(arena.NewUint(nonce))
 
 	dst := v.MarshalTo(nil)
-	dst = web3.Keccak256(dst)
+	dst = ethgo.Keccak256(dst)
 
 	copy(res[:], dst[12:])
 	return
@@ -25,7 +25,7 @@ var create2Prefix = []byte{0xff}
 
 // createAddress2 creates an Ethereum address following the CREATE2 Opcode.
 func createAddress2(addr evmc.Address, salt [32]byte, inithash []byte) (res evmc.Address) {
-	hash := web3.Keccak256(create2Prefix, addr[:], salt[:], web3.Keccak256(inithash))
+	hash := ethgo.Keccak256(create2Prefix, addr[:], salt[:], ethgo.Keccak256(inithash))
 	copy(res[:], hash[12:])
 	return
 }

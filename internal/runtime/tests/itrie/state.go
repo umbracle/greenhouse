@@ -5,8 +5,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
+	"github.com/umbracle/ethgo"
 	"github.com/umbracle/fastrlp"
-	"github.com/umbracle/go-web3"
 	state "github.com/umbracle/greenhouse/internal/runtime"
 )
 
@@ -32,7 +32,7 @@ func commitStorage(data []*state.StorageObject) (res evmc.Hash) {
 	localTxn := NewTxn()
 
 	for _, entry := range data {
-		k := web3.Keccak256(entry.Key)
+		k := ethgo.Keccak256(entry.Key)
 		if entry.Deleted {
 			localTxn.Delete(k)
 		} else {
@@ -51,7 +51,7 @@ func Commit(objs []*state.Object) []byte {
 
 	arena := &fastrlp.Arena{}
 	for _, obj := range objs {
-		addrHash := web3.Keccak256(obj.Address[:])
+		addrHash := ethgo.Keccak256(obj.Address[:])
 
 		if obj.Deleted {
 			tt.Delete(addrHash)

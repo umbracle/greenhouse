@@ -6,7 +6,7 @@ import (
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
 	iradix "github.com/hashicorp/go-immutable-radix"
-	"github.com/umbracle/go-web3"
+	"github.com/umbracle/ethgo"
 )
 
 var (
@@ -323,7 +323,7 @@ func (txn *Txn) GetNonce(addr evmc.Address) uint64 {
 // SetCode sets the code for an address
 func (txn *Txn) SetCode(addr evmc.Address, code []byte) {
 	txn.upsertAccount(addr, true, func(object *stateObject) {
-		object.Account.CodeHash = web3.Keccak256(code)
+		object.Account.CodeHash = ethgo.Keccak256(code)
 		object.DirtyCode = true
 		object.Code = code
 	})

@@ -8,7 +8,7 @@ import (
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
 	iradix "github.com/hashicorp/go-immutable-radix"
-	"github.com/umbracle/go-web3"
+	"github.com/umbracle/ethgo"
 )
 
 type Snapshot interface {
@@ -135,7 +135,7 @@ func stringToBytes(str string) []byte {
 }
 
 var (
-	EmptyCodeHash = bytesToHash(web3.Keccak256(nil))
+	EmptyCodeHash = bytesToHash(ethgo.Keccak256(nil))
 
 	// EmptyRootHash is the root when there are no transactions
 	EmptyRootHash = StringToHash("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
