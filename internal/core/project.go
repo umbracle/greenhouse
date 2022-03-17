@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -13,6 +14,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	"github.com/umbracle/greenhouse/internal/solidity"
 	"github.com/umbracle/greenhouse/internal/standard"
+	"github.com/umbracle/greenhouse/internal/state"
 )
 
 type Project struct {
@@ -23,7 +25,8 @@ type Project struct {
 	sol *solidity.Solidity
 
 	// state holds the structure of sources and contracts
-	state *State
+	// state  *State
+	state *state.State
 
 	// list of standard remapping contracts
 	remappings map[string]string
@@ -41,6 +44,12 @@ func NewProject(logger hclog.Logger, config *Config) (*Project, error) {
 	if err := p.initSources(); err != nil {
 		return nil, err
 	}
+
+	state, err := state.NewState()
+	if err != nil {
+		return nil, err
+	}
+	p.state = state
 
 	dirname, err := os.UserHomeDir()
 	if err != nil {
@@ -64,6 +73,13 @@ func NewProject(logger hclog.Logger, config *Config) (*Project, error) {
 	}
 	p.libDirectory = libDir
 
+	if err := p.loadMetadata(); err != nil {
+		return nil, err
+	}
+	// right after the start figure out if there are any tainted nodes
+	if err := p.findLocalDiff(); err != nil {
+		return nil, err
+	}
 	return p, nil
 }
 
@@ -86,27 +102,6 @@ func hash(s string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// minified version
-type Source struct {
-	ModTime   time.Time
-	BuildInfo string
-	Path      string
-	Hash      string
-	Imports   []string
-	Version   []string
-	Artifacts []string
-}
-
-type Contract struct {
-	Name     string
-	Artifact *solidity.Artifact
-}
-
-type State struct {
-	Sources map[string]*Source
-	Output  map[string]*SolcOutput
-}
-
 type FileDiffType string
 
 const (
@@ -116,42 +111,55 @@ const (
 )
 
 type FileDiff struct {
-	Path string
-	Type FileDiffType
-	Mod  time.Time
+	Path   string
+	Type   FileDiffType
+	Mod    time.Time
+	Source *state.Source
 }
 
-func (m *State) Diff(files []*File1) ([]*FileDiff, error) {
+func Diff1(sources []*state.Source, files []*File1) ([]*FileDiff, error) {
 	diff := []*FileDiff{}
+
+	sourcesMap := map[string]*state.Source{}
+	for _, src := range sources {
+		sourcesMap[filepath.Join(src.Dir, src.Filename)] = src
+	}
 
 	visited := map[string]struct{}{}
 	for _, file := range files {
 		visited[file.Path] = struct{}{}
 
-		if src, ok := m.Sources[file.Path]; ok {
+		if src, ok := sourcesMap[file.Path]; ok {
 			if !src.ModTime.Equal(file.ModTime) {
 				// mod file
 				diff = append(diff, &FileDiff{
-					Path: file.Path,
-					Type: FileDiffMod,
-					Mod:  file.ModTime,
+					Path:   file.Path,
+					Type:   FileDiffMod,
+					Mod:    file.ModTime,
+					Source: src,
 				})
 			}
 		} else {
 			// new file
+			dir, filename := filepath.Dir(file.Path), filepath.Base(file.Path)
+
 			diff = append(diff, &FileDiff{
 				Path: file.Path,
 				Type: FileDiffAdd,
 				Mod:  file.ModTime,
+				Source: &state.Source{
+					Dir:      dir,
+					Filename: filename,
+				},
 			})
 		}
 	}
 
-	for _, src := range m.Sources {
-		if _, ok := visited[src.Path]; !ok {
+	for path := range sourcesMap {
+		if _, ok := visited[path]; !ok {
 			// deleted
 			diff = append(diff, &FileDiff{
-				Path: src.Path,
+				Path: path,
 				Type: FileDiffDel,
 				Mod:  time.Time{},
 			})
@@ -171,7 +179,42 @@ func existsFile(path string) (bool, error) {
 	return false, err
 }
 
-type SolcOutput struct {
-	Id     string
-	Output *solidity.Output
+func (p *Project) loadMetadata() error {
+	var metadata *metadataFormat
+
+	metadataPath := filepath.Join(".greenhouse", "metadata.json")
+	exists, err := existsFile(metadataPath)
+	if err != nil {
+		return err
+	}
+	if exists {
+		// load the metadata from a file
+		data, err := ioutil.ReadFile(metadataPath)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			return err
+		}
+	} else {
+		metadata = &metadataFormat{
+			Sources:   []*state.Source{},
+			Contracts: []*state.Contract{},
+		}
+	}
+
+	// fill in the state with the metadata object
+	for _, src := range metadata.Sources {
+		if err := p.state.UpsertSource(src); err != nil {
+			return err
+		}
+	}
+
+	// create the contracts
+	for _, contract := range metadata.Contracts {
+		if err := p.state.UpsertContract(contract); err != nil {
+			return err
+		}
+	}
+	return nil
 }

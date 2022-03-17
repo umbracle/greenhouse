@@ -13,8 +13,8 @@ import (
 	"github.com/umbracle/go-web3/abi"
 	"github.com/umbracle/go-web3/wallet"
 	state "github.com/umbracle/greenhouse/internal/runtime"
-	"github.com/umbracle/greenhouse/internal/solidity"
 	"github.com/umbracle/greenhouse/internal/standard"
+	state2 "github.com/umbracle/greenhouse/internal/state"
 )
 
 type testTarget struct {
@@ -22,7 +22,7 @@ type testTarget struct {
 	Name     string
 	Addr     web3.Address
 	Abi      *abi.ABI
-	Artifact *solidity.Artifact
+	Contract *state2.Contract
 }
 
 type TestOutput struct {
@@ -41,9 +41,7 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 	if err := p.Compile(); err != nil {
 		return nil, err
 	}
-
 	targets := []*testTarget{}
-	visited := map[string]struct{}{}
 
 	runExpr, err := regexp.Compile(input.Run)
 	if err != nil {
@@ -52,50 +50,41 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 	isValidFunc := func(name string) bool {
 		return runExpr.Match([]byte(name))
 	}
-
-	for _, i := range p.state.Sources {
-		out := p.state.Output[i.BuildInfo]
-		for complexName, c := range out.Output.Contracts {
-
-			// contract names might be repeated
-			if _, ok := visited[complexName]; ok {
-				continue
-			}
-			visited[complexName] = struct{}{}
-
-			parts := strings.Split(complexName, ":")
-			sourceName, contractName := parts[0], parts[1]
-			if !strings.HasPrefix(contractName, "Test") {
-				continue
-			}
-
-			contractABI, err := abi.NewABI(string(c.Abi))
-			if err != nil {
-				return nil, err
-			}
-
-			// check if there is any contract that matches the regexp
-			validContract := false
-			for method := range contractABI.Methods {
-				if !strings.HasPrefix(method, "test") {
-					continue
-				}
-				if isValidFunc(method) {
-					validContract = true
-					break
-				}
-			}
-			if !validContract {
-				continue
-			}
-
-			targets = append(targets, &testTarget{
-				Source:   sourceName,
-				Name:     contractName,
-				Abi:      contractABI,
-				Artifact: c,
-			})
+	contracts, err := p.state.ListContracts()
+	if err != nil {
+		return nil, err
+	}
+	for _, contract := range contracts {
+		if !strings.HasPrefix(contract.Name, "Test") {
+			continue
 		}
+
+		contractABI, err := abi.NewABI(string(contract.Abi))
+		if err != nil {
+			return nil, err
+		}
+
+		// check if there is any contract that matches the regexp
+		validContract := false
+		for method := range contractABI.Methods {
+			if !strings.HasPrefix(method, "test") {
+				continue
+			}
+			if isValidFunc(method) {
+				validContract = true
+				break
+			}
+		}
+		if !validContract {
+			continue
+		}
+
+		targets = append(targets, &testTarget{
+			Source:   contract.Dir + "/" + contract.Filename,
+			Name:     contract.Name,
+			Abi:      contractABI,
+			Contract: contract,
+		})
 	}
 
 	// address to deploy the contracts
@@ -113,11 +102,11 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 
 	targetsByAddr := map[web3.Address]*testTarget{}
 	for _, target := range targets {
-		code, err := hex.DecodeString(target.Artifact.Bin)
+		code, err := hex.DecodeString(target.Contract.Bin)
 		if err != nil {
 			return nil, err
 		}
-		bin, err := hex.DecodeString(target.Artifact.BinRuntime)
+		bin, err := hex.DecodeString(target.Contract.BinRuntime)
 		if err != nil {
 			return nil, err
 		}

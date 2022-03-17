@@ -13,45 +13,42 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/umbracle/greenhouse/internal/dag"
 	"github.com/umbracle/greenhouse/internal/solidity"
+	"github.com/umbracle/greenhouse/internal/state"
 )
 
-func (p *Project) loadMetadata() ([]*FileDiff, error) {
-	// this is something you always have to load
+func (p *Project) findLocalDiff() error {
 	files, err := Walk(p.config.Contracts)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var metadata *State
-
-	metadataPath := filepath.Join(".greenhouse", "metadata.json")
-	exists, err := existsFile(metadataPath)
+	sources, err := p.state.ListSources()
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	if exists {
-		// load the metadata from a file
-		data, err := ioutil.ReadFile(metadataPath)
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(data, &metadata); err != nil {
-			return nil, err
-		}
-	} else {
-		metadata = &State{
-			Sources: map[string]*Source{},
-			Output:  map[string]*SolcOutput{},
-		}
-	}
-
-	diffFiles, err := metadata.Diff(files)
+	diffFiles2, err := Diff1(sources, files)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	p.state = metadata
-	return diffFiles, nil
+	for _, diff := range diffFiles2 {
+		if diff.Type == FileDiffAdd {
+
+			src := diff.Source
+			src.Tainted = true
+			if err := p.state.UpsertSource(src); err != nil {
+				panic(err)
+			}
+		}
+		if diff.Type == FileDiffMod {
+			// update the tainted
+			//fmt.Println(diff.Source.Dir, diff.Source.Filename)
+			if err := p.state.SetTaintedSource(diff.Source.Dir, diff.Source.Filename); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Compile compiles the application
@@ -62,32 +59,37 @@ func (p *Project) Compile() error {
 		return err
 	}
 
-	diffFiles, err := p.loadMetadata()
-	if err != nil {
-		return nil
-	}
-	if len(diffFiles) == 0 {
-		// nothing to compile
-		return nil
-	}
+	updatedSources := []*state.Source{}
 
-	sources := p.state.Sources
+	sourcesList, err := p.state.ListSources()
+	if err != nil {
+		panic(err)
+	}
+	sources := map[string]*state.Source{} //p.state.Sources
+	for _, s := range sourcesList {
+		sources[s.Path()] = s
+
+		if s.Tainted {
+			updatedSources = append(updatedSources, s)
+		}
+	}
 
 	remappings := map[string]string{}
 
 	// detect dependencies only for new and modified files
-	diffSources := []*Source{}
-	for _, f := range diffFiles {
-		if f.Type == FileDiffDel {
-			continue
-		}
-		content, err := ioutil.ReadFile(f.Path)
+	diffSources := []*state.Source{}
+	for _, f := range updatedSources {
+		content, err := ioutil.ReadFile(f.Path())
 		if err != nil {
 			return err
 		}
+		file, err := os.Stat(f.Path())
+		if err != nil {
+			fmt.Println(err)
+		}
 
 		imports := parseDependencies(string(content))
-		parentPath := filepath.Dir(f.Path)
+		parentPath := filepath.Dir(f.Path())
 
 		// clean the imports so that we can convert relative file names to
 		// their path with respect to the contracts repo (i.e ./d.sol to ./contracts/d.sol)
@@ -110,15 +112,30 @@ func (p *Project) Compile() error {
 		if err != nil {
 			return err
 		}
-		src := &Source{
-			Imports: cleanImports,
-			Version: pragma,
-			ModTime: f.Mod,
-			Path:    f.Path,
-			Hash:    hash(string(content)),
+		/*
+			src := &Source{
+				Imports: cleanImports,
+				Version: pragma,
+				ModTime: f.ModTime,
+				Path:    f.Path(),
+				Hash:    hash(string(content)),
+			}
+		*/
+
+		//fmt.Println("--mod time --")
+		//fmt.Println(f.ModTime)
+
+		src2 := f.Copy()
+		src2.Tainted = false
+		src2.Imports = cleanImports
+		src2.Version = pragma
+		src2.ModTime = file.ModTime()
+
+		if err := p.state.UpsertSource(src2); err != nil {
+			panic(err)
 		}
-		sources[f.Path] = src
-		diffSources = append(diffSources, src)
+		sources[f.Path()] = src2
+		diffSources = append(diffSources, src2)
 	}
 
 	// build dag map (move this to own repo)
@@ -131,7 +148,7 @@ func (p *Project) Compile() error {
 		for _, dst := range src.Imports {
 			dst, ok := sources[dst]
 			if !ok {
-				panic(fmt.Errorf("BUG: elem in DAG not found: %s", dst))
+				panic(fmt.Errorf("BUG: elem in DAG not found: %s", dst.Path()))
 			}
 			dd.AddEdge(dag.Edge{
 				Src: src,
@@ -158,7 +175,7 @@ func (p *Project) Compile() error {
 		if found {
 			subComp := []string{}
 			for _, i := range comp {
-				subComp = append(subComp, i.(*Source).Path)
+				subComp = append(subComp, i.(*state.Source).Path())
 			}
 			components = append(components, subComp)
 		}
@@ -195,16 +212,36 @@ func (p *Project) Compile() error {
 		}
 
 		id := uuid.New()
-		out := &SolcOutput{
-			Id:     id.String(),
-			Output: output,
-		}
-		p.state.Output[id.String()] = out
+		//out := &SolcOutput{
+		//	Id:     id.String(),
+		//	Output: output,
+		//}
+		//p.state.Output[id.String()] = out
 
 		for _, i := range comp {
 			sources[i].BuildInfo = id.String()
 		}
 		for name, c := range output.Contracts {
+
+			//fmt.Println("-- name --")
+			//fmt.Println(name)
+
+			parts := strings.Split(name, ":")
+
+			dir, filename := filepath.Dir(parts[0]), filepath.Base(parts[0])
+			contractName := parts[1]
+
+			ctnr := &state.Contract{
+				Name:       contractName,
+				Dir:        dir,
+				Filename:   filename,
+				Abi:        string(c.Abi),
+				Bin:        c.Bin,
+				BinRuntime: c.BinRuntime,
+			}
+			if err := p.state.UpsertContract(ctnr); err != nil {
+				return err
+			}
 			contracts[name] = c
 		}
 	}
@@ -237,33 +274,9 @@ func (p *Project) Compile() error {
 		}
 	}
 
-	{
-		// write metadata!
-		// clean any extra output that is not being referenced anymore.
-		deleteNames := []string{}
-		for name := range p.state.Output {
-			found := false
-			for _, src := range p.state.Sources {
-				if src.BuildInfo == name {
-					found = true
-					break
-				}
-			}
-			if !found {
-				deleteNames = append(deleteNames, name)
-			}
-		}
-		for _, name := range deleteNames {
-			delete(p.state.Output, name)
-		}
-
-		raw, err := json.Marshal(p.state)
-		if err != nil {
-			return err
-		}
-		if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), raw, 0644); err != nil {
-			return err
-		}
+	raw := writeMetadata(p.state)
+	if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), raw, 0644); err != nil {
+		return err
 	}
 	return nil
 }
