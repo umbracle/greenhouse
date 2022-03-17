@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
@@ -25,6 +26,23 @@ type testTarget struct {
 	Contract *state2.Contract
 }
 
+type testTargets []*testTarget
+
+func (t testTargets) Len() int {
+	return len(t)
+}
+
+func (t testTargets) Swap(i, j int) {
+	t[i], t[j] = t[j], t[i]
+}
+
+func (t testTargets) Less(i, j int) bool {
+	if t[i].Source != t[j].Source {
+		return t[i].Source < t[j].Source
+	}
+	return t[i].Name < t[j].Name
+}
+
 type TestOutput struct {
 	Source   string
 	Contract string
@@ -41,7 +59,7 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 	if err := p.Compile(); err != nil {
 		return nil, err
 	}
-	targets := []*testTarget{}
+	targets := testTargets{}
 
 	runExpr, err := regexp.Compile(input.Run)
 	if err != nil {
@@ -87,6 +105,8 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 		})
 	}
 
+	sort.Sort(targets)
+
 	// address to deploy the contracts
 	key, _ := wallet.GenerateKey()
 	sender := key.Address()
@@ -130,11 +150,21 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 
 	result := []*TestOutput{}
 	for _, target := range targets {
-		for method, sig := range target.Abi.Methods {
-			if !strings.HasPrefix(method, "test") {
+
+		// sort the methods to get a deterministic output
+		methodNames := sort.StringSlice{}
+		for method, _ := range target.Abi.Methods {
+			methodNames = append(methodNames, method)
+		}
+		sort.Sort(methodNames)
+
+		for _, methodName := range methodNames {
+			method := target.Abi.Methods[methodName]
+
+			if !strings.HasPrefix(methodName, "test") {
 				continue
 			}
-			if !isValidFunc(method) {
+			if !isValidFunc(methodName) {
 				continue
 			}
 
@@ -145,14 +175,14 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 				Gas:      1000000000,
 				From:     evmc.Address(sender),
 				To:       &to,
-				Input:    sig.ID(),
+				Input:    method.ID(),
 			}
 			output := txn.Apply(msg)
 
 			result = append(result, &TestOutput{
 				Source:   target.Source,
 				Contract: target.Name,
-				Method:   method,
+				Method:   methodName,
 				Output:   output,
 				Console:  console.outputs,
 			})
