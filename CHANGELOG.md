@@ -1,6 +1,7 @@
 
 ## 0.1.1 (Unreleased)
 
+- Execute test methods during `test` command in deterministic order [[GH-18](https://github.com/umbracle/greenhouse/issues/18)]
 - Update the renamed `go-web3` dependency to `ethgo` [[GH-16](https://github.com/umbracle/greenhouse/issues/16)]
 - Introduce `memdb` as state backend [[GH-15](https://github.com/umbracle/greenhouse/issues/15)]
 - Filter by name the tests executed in `test` command [[GH-14](https://github.com/umbracle/greenhouse/issues/14)]
