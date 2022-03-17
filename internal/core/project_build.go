@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/hashicorp/go-version"
 	"github.com/umbracle/greenhouse/internal/dag"
 	"github.com/umbracle/greenhouse/internal/solidity"
@@ -24,11 +23,11 @@ func (p *Project) findLocalDiff() error {
 
 	sources, err := p.state.ListSources()
 	if err != nil {
-		panic(err)
+		return err
 	}
-	diffFiles2, err := Diff1(sources, files)
+	diffFiles2, err := Diff(sources, files)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for _, diff := range diffFiles2 {
@@ -36,14 +35,14 @@ func (p *Project) findLocalDiff() error {
 
 			src := diff.Source
 			src.Tainted = true
+
 			if err := p.state.UpsertSource(src); err != nil {
-				panic(err)
+				return err
 			}
 		}
 		if diff.Type == FileDiffMod {
 			// update the tainted
-			//fmt.Println(diff.Source.Dir, diff.Source.Filename)
-			if err := p.state.SetTaintedSource(diff.Source.Dir, diff.Source.Filename); err != nil {
+			if err := p.state.UpsertSource(diff.Source); err != nil {
 				return err
 			}
 		}
@@ -53,19 +52,67 @@ func (p *Project) findLocalDiff() error {
 
 // Compile compiles the application
 func (p *Project) Compile() error {
+	resp, err := p.compileImpl()
+	if err != nil {
+		return err
+	}
+
+	// write artifacts!
+	for name, contract := range resp.Contracts {
+		// name has the format <path>:<contract>
+		// remove the contract name
+		spl := strings.Split(name, ":")
+		path, name := spl[0], spl[1]
+
+		// trim the lib directory from the path (if exists)
+		path = strings.TrimPrefix(path, p.libDirectory)
+
+		// remove the contracts path in the destination name
+		sourcePath := filepath.Join(".greenhouse", path)
+		if err := os.MkdirAll(sourcePath, 0755); err != nil {
+			return err
+		}
+
+		// write the contract file
+		raw, err := json.Marshal(contract)
+		if err != nil {
+			return err
+		}
+		if err := ioutil.WriteFile(filepath.Join(sourcePath, name+".json"), raw, 0644); err != nil {
+			return err
+		}
+	}
+
+	// write metadata
+	metadataRaw, err := getMetadataRaw(p.state)
+	if err != nil {
+		return err
+	}
+	if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), metadataRaw, 0644); err != nil {
+		return err
+	}
+	return nil
+
+}
+
+type CompileResult struct {
+	Contracts map[string]*state.Contract
+}
+
+func (p *Project) compileImpl() (*CompileResult, error) {
 	// solidity version we use to compile
 	solidityVersion, err := version.NewVersion(p.config.Solidity)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	updatedSources := []*state.Source{}
 
 	sourcesList, err := p.state.ListSources()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	sources := map[string]*state.Source{} //p.state.Sources
+	sources := map[string]*state.Source{}
 	for _, s := range sourcesList {
 		sources[s.Path()] = s
 
@@ -77,65 +124,18 @@ func (p *Project) Compile() error {
 	remappings := map[string]string{}
 
 	// detect dependencies only for new and modified files
-	diffSources := []*state.Source{}
+	diffSources := updatedSources
+
+	// find the necessary remappings
 	for _, f := range updatedSources {
-		content, err := ioutil.ReadFile(f.Path())
-		if err != nil {
-			return err
-		}
-		file, err := os.Stat(f.Path())
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		imports := parseDependencies(string(content))
-		parentPath := filepath.Dir(f.Path())
-
-		// clean the imports so that we can convert relative file names to
-		// their path with respect to the contracts repo (i.e ./d.sol to ./contracts/d.sol)
-		cleanImports := []string{}
-		for _, im := range imports {
-			// local
-			if !strings.HasPrefix(im, ".") {
-				// absolute path, check if we can resolve it using the remappings
-				if fullPath, exists := p.remappings[im]; exists {
-					remappings[im] = fullPath
-				} else {
-					return fmt.Errorf("absolute paths cannot be resolved yet")
-				}
+		for _, im := range f.GetRemappings() {
+			// check if we can resolve it using the remappings
+			if fullPath, exists := p.remappings[im]; exists {
+				remappings[im] = fullPath
 			} else {
-				cleanImports = append(cleanImports, filepath.Join(parentPath, im))
+				return nil, fmt.Errorf("absolute paths cannot be resolved yet")
 			}
 		}
-
-		pragma, err := parsePragma(string(content))
-		if err != nil {
-			return err
-		}
-		/*
-			src := &Source{
-				Imports: cleanImports,
-				Version: pragma,
-				ModTime: f.ModTime,
-				Path:    f.Path(),
-				Hash:    hash(string(content)),
-			}
-		*/
-
-		//fmt.Println("--mod time --")
-		//fmt.Println(f.ModTime)
-
-		src2 := f.Copy()
-		src2.Tainted = false
-		src2.Imports = cleanImports
-		src2.Version = pragma
-		src2.ModTime = file.ModTime()
-
-		if err := p.state.UpsertSource(src2); err != nil {
-			panic(err)
-		}
-		sources[f.Path()] = src2
-		diffSources = append(diffSources, src2)
 	}
 
 	// build dag map (move this to own repo)
@@ -145,7 +145,7 @@ func (p *Project) Compile() error {
 	}
 	// add edges
 	for _, src := range sources {
-		for _, dst := range src.Imports {
+		for _, dst := range src.GetLocalImports() {
 			dst, ok := sources[dst]
 			if !ok {
 				panic(fmt.Errorf("BUG: elem in DAG not found: %s", dst.Path()))
@@ -181,7 +181,7 @@ func (p *Project) Compile() error {
 		}
 	}
 
-	contracts := map[string]*solidity.Artifact{}
+	contracts := map[string]*state.Contract{}
 
 	// generate the outputs and compile
 	for _, comp := range components {
@@ -194,7 +194,7 @@ func (p *Project) Compile() error {
 		// TODO: Parse this before
 		versionConstraint, err := version.NewConstraint(strings.Join(pragmas, ", "))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !versionConstraint.Check(solidityVersion) {
 			panic("not match in solidity compiler")
@@ -208,24 +208,19 @@ func (p *Project) Compile() error {
 		}
 		output, err := p.sol.Compile(input)
 		if err != nil {
-			return err
+			return nil, err
 		}
-
-		id := uuid.New()
-		//out := &SolcOutput{
-		//	Id:     id.String(),
-		//	Output: output,
-		//}
-		//p.state.Output[id.String()] = out
 
 		for _, i := range comp {
-			sources[i].BuildInfo = id.String()
+			src := sources[i].Copy()
+			src.Tainted = false
+
+			// update hte sources
+			if err := p.state.UpsertSource(src); err != nil {
+				return nil, err
+			}
 		}
 		for name, c := range output.Contracts {
-
-			//fmt.Println("-- name --")
-			//fmt.Println(name)
-
 			parts := strings.Split(name, ":")
 
 			dir, filename := filepath.Dir(parts[0]), filepath.Base(parts[0])
@@ -240,45 +235,16 @@ func (p *Project) Compile() error {
 				BinRuntime: c.BinRuntime,
 			}
 			if err := p.state.UpsertContract(ctnr); err != nil {
-				return err
+				return nil, err
 			}
-			contracts[name] = c
+			contracts[name] = ctnr
 		}
 	}
 
-	{
-		// write artifacts!
-		for name, contract := range contracts {
-			// name has the format <path>:<contract>
-			// remove the contract name
-			spl := strings.Split(name, ":")
-			path, name := spl[0], spl[1]
-
-			// trim the lib directory from the path (if exists)
-			path = strings.TrimPrefix(path, p.libDirectory)
-
-			// remove the contracts path in the destination name
-			sourcePath := filepath.Join(".greenhouse", path)
-			if err := os.MkdirAll(sourcePath, 0755); err != nil {
-				return err
-			}
-
-			// write the contract file
-			raw, err := json.Marshal(contract)
-			if err != nil {
-				return err
-			}
-			if err := ioutil.WriteFile(filepath.Join(sourcePath, name+".json"), raw, 0644); err != nil {
-				return err
-			}
-		}
+	resp := &CompileResult{
+		Contracts: contracts,
 	}
-
-	raw := writeMetadata(p.state)
-	if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), raw, 0644); err != nil {
-		return err
-	}
-	return nil
+	return resp, nil
 }
 
 var (

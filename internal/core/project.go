@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -25,7 +26,6 @@ type Project struct {
 	sol *solidity.Solidity
 
 	// state holds the structure of sources and contracts
-	// state  *State
 	state *state.State
 
 	// list of standard remapping contracts
@@ -117,12 +117,25 @@ type FileDiff struct {
 	Source *state.Source
 }
 
-func Diff1(sources []*state.Source, files []*File1) ([]*FileDiff, error) {
+func Diff(sources []*state.Source, files []*File1) ([]*FileDiff, error) {
 	diff := []*FileDiff{}
 
 	sourcesMap := map[string]*state.Source{}
 	for _, src := range sources {
 		sourcesMap[filepath.Join(src.Dir, src.Filename)] = src
+	}
+
+	readAndParseFile := func(path string) (*state.Source, error) {
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		source, err := parseSource(string(content), path)
+		if err != nil {
+			return nil, err
+		}
+		source.Tainted = true
+		return source, nil
 	}
 
 	visited := map[string]struct{}{}
@@ -132,25 +145,29 @@ func Diff1(sources []*state.Source, files []*File1) ([]*FileDiff, error) {
 		if src, ok := sourcesMap[file.Path]; ok {
 			if !src.ModTime.Equal(file.ModTime) {
 				// mod file
+				source, err := readAndParseFile(file.Path)
+				if err != nil {
+					return nil, err
+				}
 				diff = append(diff, &FileDiff{
 					Path:   file.Path,
 					Type:   FileDiffMod,
 					Mod:    file.ModTime,
-					Source: src,
+					Source: source,
 				})
 			}
 		} else {
 			// new file
-			dir, filename := filepath.Dir(file.Path), filepath.Base(file.Path)
+			source, err := readAndParseFile(file.Path)
+			if err != nil {
+				return nil, err
+			}
 
 			diff = append(diff, &FileDiff{
-				Path: file.Path,
-				Type: FileDiffAdd,
-				Mod:  file.ModTime,
-				Source: &state.Source{
-					Dir:      dir,
-					Filename: filename,
-				},
+				Path:   file.Path,
+				Type:   FileDiffAdd,
+				Mod:    file.ModTime,
+				Source: source,
 			})
 		}
 	}
@@ -217,4 +234,43 @@ func (p *Project) loadMetadata() error {
 		}
 	}
 	return nil
+}
+
+func parseSource(content, path string) (*state.Source, error) {
+	// new file
+	dir, filename := filepath.Dir(path), filepath.Base(path)
+
+	file, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+
+	oldImports := parseDependencies(string(content))
+	parentPath := filepath.Dir(path)
+
+	// clean the imports so that we can convert relative file names to
+	// their path with respect to the contracts repo (i.e ./d.sol to ./contracts/d.sol)
+	cleanImports := []string{}
+	for _, im := range oldImports {
+		// local
+		if !strings.HasPrefix(im, ".") {
+			cleanImports = append(cleanImports, im)
+		} else {
+			cleanImports = append(cleanImports, filepath.Join(parentPath, im))
+		}
+	}
+
+	pragma, err := parsePragma(string(content))
+	if err != nil {
+		return nil, err
+	}
+
+	source := &state.Source{
+		Dir:      dir,
+		Filename: filename,
+		Version:  pragma,
+		Imports:  cleanImports,
+		ModTime:  file.ModTime(),
+	}
+	return source, nil
 }

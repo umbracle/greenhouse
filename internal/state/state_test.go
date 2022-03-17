@@ -18,5 +18,8 @@ func TestState_CreateSource(t *testing.T) {
 		Tainted:  true,
 	}
 	assert.NoError(t, s.UpsertSource(src))
-	s.ListTaintedSources()
+
+	sources, err := s.ListTaintedSources()
+	assert.NoError(t, err)
+	assert.Len(t, sources, 1)
 }

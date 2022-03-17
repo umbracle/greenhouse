@@ -2,6 +2,7 @@ package state
 
 import (
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/umbracle/go-web3/abi"
@@ -27,11 +28,26 @@ type Source struct {
 	// Imports is the list of imports defined in this source
 	Imports []string
 
-	// BuildInfo is the hash of the build
-	BuildInfo string
-
 	// AST is **compiled** ast tree of the solidity code
 	AST *solidity.ASTNode
+}
+
+func (s *Source) GetLocalImports() (local []string) {
+	for _, i := range s.Imports {
+		if strings.HasPrefix(i, "/") {
+			local = append(local, i)
+		}
+	}
+	return
+}
+
+func (s *Source) GetRemappings() (remappings []string) {
+	for _, i := range s.Imports {
+		if !strings.HasPrefix(i, "/") {
+			remappings = append(remappings, i)
+		}
+	}
+	return
 }
 
 func (s *Source) Path() string {
@@ -52,13 +68,13 @@ type Contract struct {
 	Name string
 
 	// Abi is the abi encoding of the contract
-	Abi string
+	Abi string `json:"abi"`
 
 	// Bin is the bin bytecode to deploy the contract
-	Bin string
+	Bin string `json:"bin"`
 
 	// BinRuntime is the deployed bytecode of the contract
-	BinRuntime string
+	BinRuntime string `json:"bin-runtime"`
 
 	// SrcMap is the source map object for the deployment transaction
 	SrcMap string `json:"srcmap"`

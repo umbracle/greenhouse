@@ -2,7 +2,6 @@ package core
 
 import (
 	"encoding/json"
-	"io/ioutil"
 
 	"github.com/umbracle/greenhouse/internal/state"
 )
@@ -12,15 +11,15 @@ type metadataFormat struct {
 	Contracts []*state.Contract
 }
 
-func writeMetadata(s *state.State) []byte {
+func getMetadataRaw(s *state.State) ([]byte, error) {
 	sources, err := s.ListSources()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	contracts, err := s.ListContracts()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	out := &metadataFormat{
 		Contracts: contracts,
@@ -28,10 +27,7 @@ func writeMetadata(s *state.State) []byte {
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	if err := ioutil.WriteFile("./metadata2.json", data, 0755); err != nil {
-		panic(err)
-	}
-	return data
+	return data, nil
 }
