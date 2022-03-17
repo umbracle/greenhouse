@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
+	"github.com/umbracle/ethgo/wallet"
 	"github.com/umbracle/fastrlp"
-	"github.com/umbracle/go-web3/wallet"
 	state "github.com/umbracle/greenhouse/internal/runtime"
 )
 

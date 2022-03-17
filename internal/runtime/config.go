@@ -4,7 +4,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
-	"github.com/umbracle/go-web3"
+	"github.com/umbracle/ethgo"
 )
 
 type Config struct {
@@ -64,7 +64,7 @@ func WithCheatcode(cheat Cheatcode) ConfigOption {
 }
 
 func getHashDefault(n uint64) (res evmc.Hash) {
-	hash := web3.Keccak256([]byte(big.NewInt(int64(n)).String()))
+	hash := ethgo.Keccak256([]byte(big.NewInt(int64(n)).String()))
 	copy(res[:], hash)
 	return
 }

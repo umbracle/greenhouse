@@ -10,7 +10,7 @@ import (
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
 	"github.com/stretchr/testify/assert"
-	"github.com/umbracle/go-web3"
+	"github.com/umbracle/ethgo"
 	state "github.com/umbracle/greenhouse/internal/runtime"
 	itrie "github.com/umbracle/greenhouse/internal/runtime/tests/itrie"
 )
@@ -64,7 +64,7 @@ func (w *wrapper) GetAccount(addr evmc.Address) (*state.Account, error) {
 	newAcct := &state.Account{
 		Balance:  acct.Balance.Big(),
 		Nonce:    acct.Nonce.Uint64(),
-		CodeHash: web3.Keccak256(acct.Code),
+		CodeHash: ethgo.Keccak256(acct.Code),
 		Root:     evmc.Hash{},
 		Code:     acct.Code,
 	}
@@ -130,7 +130,7 @@ func computeRoot(pre map[argAddr]*GenesisAccount, post []*state.Object) []byte {
 		}
 		if len(data.Code) != 0 {
 			obj.Code = data.Code
-			copy(obj.CodeHash[:], web3.Keccak256(data.Code))
+			copy(obj.CodeHash[:], ethgo.Keccak256(data.Code))
 		}
 		for k, v := range data.Storage {
 			key := append([]byte{}, k[:]...)
@@ -259,5 +259,5 @@ func TestState(t *testing.T) {
 }
 
 func rlpHashLogs(logs []*state.Log) []byte {
-	return web3.Keccak256(MarshalLogsWith(logs))
+	return ethgo.Keccak256(MarshalLogsWith(logs))
 }

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
-	"github.com/umbracle/go-web3/wallet"
+	"github.com/umbracle/ethgo/wallet"
 	"golang.org/x/crypto/ripemd160"
 )
 

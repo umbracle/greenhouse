@@ -3,8 +3,8 @@ package itrie
 import (
 	"fmt"
 
+	"github.com/umbracle/ethgo"
 	"github.com/umbracle/fastrlp"
-	"github.com/umbracle/go-web3"
 	state "github.com/umbracle/greenhouse/internal/runtime"
 )
 
@@ -20,14 +20,14 @@ func (t *Txn) Hash() ([]byte, error) {
 
 	if val.Type() == fastrlp.TypeBytes {
 		if val.Len() != 32 {
-			root = web3.Keccak256(val.Raw())
+			root = ethgo.Keccak256(val.Raw())
 		} else {
 			root = make([]byte, 32)
 			copy(root, val.Raw())
 		}
 	} else {
 		tmp := val.MarshalTo(nil)
-		root = web3.Keccak256(tmp)
+		root = ethgo.Keccak256(tmp)
 	}
 	return root, nil
 }
@@ -74,6 +74,6 @@ func (t *Txn) hash(node Node, a *fastrlp.Arena, d int) *fastrlp.Value {
 
 	// marshal RLP value
 	buf := val.MarshalTo(nil)
-	tmp := web3.Keccak256(buf)
+	tmp := ethgo.Keccak256(buf)
 	return a.NewCopyBytes(tmp)
 }

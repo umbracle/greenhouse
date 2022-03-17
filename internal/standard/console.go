@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/umbracle/go-web3"
-	"github.com/umbracle/go-web3/abi"
+	"github.com/umbracle/ethgo"
+	"github.com/umbracle/ethgo/abi"
 )
 
 var LogCases = map[string]*abi.Type{}
@@ -26,7 +26,7 @@ func init() {
 		}
 
 		// signature of the call. Use the version without the bytes in 'uint'.
-		sig := web3.Keccak256([]byte("log" + match[1]))[:4]
+		sig := ethgo.Keccak256([]byte("log" + match[1]))[:4]
 		LogCases[hex.EncodeToString(sig)] = typ
 	}
 }
