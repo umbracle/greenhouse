@@ -14,6 +14,7 @@ import (
 	"github.com/umbracle/ethgo/abi"
 	"github.com/umbracle/ethgo/wallet"
 	state "github.com/umbracle/greenhouse/internal/runtime"
+	"github.com/umbracle/greenhouse/internal/runtime/tracer"
 	"github.com/umbracle/greenhouse/internal/standard"
 	state2 "github.com/umbracle/greenhouse/internal/state"
 )
@@ -49,6 +50,7 @@ type TestOutput struct {
 	Method   string
 	Console  []*ConsoleOutput
 	Output   *state.Output
+	Trace    *tracer.StructTracerOutput
 }
 
 type TestInput struct {
@@ -114,9 +116,13 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 	console := &consoleCheatcode{}
 	console.reset()
 
+	tracer := &tracer.StructTracer{}
+	tracer.Reset()
+
 	opts := []state.ConfigOption{
 		state.WithRevision(evmc.Istanbul),
 		state.WithCheatcode(console),
+		state.WithTracer(tracer),
 	}
 	txn := state.NewTransition(opts...)
 
@@ -148,12 +154,15 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 		targetsByAddr[target.Addr] = target
 	}
 
+	// reset any traces from contract creation
+	tracer.Reset()
+
 	result := []*TestOutput{}
 	for _, target := range targets {
 
 		// sort the methods to get a deterministic output
 		methodNames := sort.StringSlice{}
-		for method, _ := range target.Abi.Methods {
+		for method := range target.Abi.Methods {
 			methodNames = append(methodNames, method)
 		}
 		sort.Sort(methodNames)
@@ -185,7 +194,10 @@ func (p *Project) Test(input *TestInput) ([]*TestOutput, error) {
 				Method:   methodName,
 				Output:   output,
 				Console:  console.outputs,
+				Trace:    tracer.GetOutput(),
 			})
+
+			tracer.Reset()
 			console.reset()
 		}
 	}

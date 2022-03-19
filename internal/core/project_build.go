@@ -227,12 +227,14 @@ func (p *Project) compileImpl() (*CompileResult, error) {
 			contractName := parts[1]
 
 			ctnr := &state.Contract{
-				Name:       contractName,
-				Dir:        dir,
-				Filename:   filename,
-				Abi:        string(c.Abi),
-				Bin:        c.Bin,
-				BinRuntime: c.BinRuntime,
+				Name:          contractName,
+				Dir:           dir,
+				Filename:      filename,
+				Abi:           string(c.Abi),
+				Bin:           c.Bin,
+				BinRuntime:    c.BinRuntime,
+				SrcMap:        c.SrcMap,
+				SrcMapRuntime: c.SrcMapRuntime,
 			}
 			if err := p.state.UpsertContract(ctnr); err != nil {
 				return nil, err

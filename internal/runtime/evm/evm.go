@@ -4,11 +4,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
+	"github.com/umbracle/greenhouse/internal/runtime/tracer"
 )
 
 type EVM struct {
-	Host evmc.HostContext
-	Rev  evmc.Revision
+	Host   evmc.HostContext
+	Rev    evmc.Revision
+	Tracer tracer.Tracer
 }
 
 // Run implements the runtime interface
@@ -23,6 +25,7 @@ func (e *EVM) Run(typ evmc.CallKind, recipient evmc.Address, sender evmc.Address
 	s.Depth = depth
 	s.Value = value
 	s.Static = static
+	s.tracer = e.Tracer
 
 	if typ == evmc.Create || typ == evmc.Create2 {
 		s.Input = nil

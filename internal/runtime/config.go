@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
 	"github.com/umbracle/ethgo"
+	"github.com/umbracle/greenhouse/internal/runtime/tracer"
 )
 
 type Config struct {
@@ -13,6 +14,7 @@ type Config struct {
 	Rev        evmc.Revision
 	State      Snapshot
 	Cheatcodes []Cheatcode
+	Tracer     tracer.Tracer
 }
 
 func DefaultConfig() *Config {
@@ -27,6 +29,12 @@ func DefaultConfig() *Config {
 }
 
 type ConfigOption func(*Config)
+
+func WithTracer(tracer tracer.Tracer) ConfigOption {
+	return func(c *Config) {
+		c.Tracer = tracer
+	}
+}
 
 func WithGetHash(hash GetHashByNumber) ConfigOption {
 	return func(c *Config) {

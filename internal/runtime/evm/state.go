@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/ethereum/evmc/v10/bindings/go/evmc"
+	"github.com/umbracle/greenhouse/internal/runtime/tracer"
 )
 
 var statePool = sync.Pool{
@@ -77,6 +78,8 @@ type state struct {
 
 	returnData []byte
 	ret        []byte
+
+	tracer tracer.Tracer
 }
 
 func (c *state) isRevision(rev evmc.Revision) bool {
@@ -200,6 +203,15 @@ func (c *state) resetReturnData() {
 func (c *state) Run() ([]byte, error) {
 	var vmerr error
 
+	var op OpCode
+	var iniGas uint64
+
+	doTrace := func() {
+		if c.tracer != nil {
+			c.tracer.CaptureState(c.ip, byte(op), iniGas, c.gas-iniGas, c.ret, c.Depth, nil)
+		}
+	}
+
 	codeSize := len(c.code)
 	for !c.stop {
 		if c.ip >= codeSize {
@@ -207,7 +219,8 @@ func (c *state) Run() ([]byte, error) {
 			break
 		}
 
-		op := OpCode(c.code[c.ip])
+		iniGas = c.gas
+		op = OpCode(c.code[c.ip])
 
 		inst := dispatchTable[op]
 		if inst.inst == nil {
@@ -227,16 +240,27 @@ func (c *state) Run() ([]byte, error) {
 
 		// execute the instruction
 		inst.inst(c)
+		if c.stop {
+			doTrace()
+			break
+		}
 
 		// check if stack size exceeds the max size
 		if c.sp > stackSize {
 			c.exit(errStackOverflow)
 			break
 		}
+
+		// trace (this is also enough to trace return calls)
+		doTrace()
+
 		c.ip++
 	}
 
 	if err := c.err; err != nil {
+		// trace the error since it exited before than expected
+		doTrace()
+
 		vmerr = err
 	}
 	return c.ret, vmerr

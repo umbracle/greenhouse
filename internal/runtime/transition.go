@@ -241,7 +241,7 @@ func (t *Transition) isPrecompiled(codeAddr evmc.Address) bool {
 	return true
 }
 
-func (t *Transition) run(c *Contract) ([]byte, int64, error) {
+func (t *Transition) run(c *Contract) (ret []byte, gas int64, err error) {
 	// try to run a cheatcode first
 	for _, cheat := range t.config.Cheatcodes {
 		if cheat.CanRun(c.CodeAddress) {
@@ -250,15 +250,25 @@ func (t *Transition) run(c *Contract) ([]byte, int64, error) {
 			return nil, int64(c.Gas), nil
 		}
 	}
+
+	if t.config.Tracer != nil {
+		// cheatcodes are not traced
+		t.config.Tracer.CaptureStart(c.Type, c.Address, c.CodeAddress, c.Input, c.Gas, c.Value)
+		defer t.config.Tracer.CaptureEnd(ret, gas, err)
+	}
+
 	if t.isPrecompiled(c.CodeAddress) {
-		return runPrecompiled(c.CodeAddress, c.Input, c.Gas, t.config.Rev)
+		ret, gas, err = runPrecompiled(c.CodeAddress, c.Input, c.Gas, t.config.Rev)
+		return
 	}
 
 	evm := evm.EVM{
-		Host: t,
-		Rev:  t.config.Rev,
+		Host:   t,
+		Rev:    t.config.Rev,
+		Tracer: t.config.Tracer,
 	}
-	return evm.Run(c.Type, c.Address, c.Caller, c.Value, c.Input, int64(c.Gas), c.Depth, c.Static, c.CodeAddress)
+	ret, gas, err = evm.Run(c.Type, c.Address, c.Caller, c.Value, c.Input, int64(c.Gas), c.Depth, c.Static, c.CodeAddress)
+	return
 }
 
 func (t *Transition) transfer(from, to evmc.Address, amount *big.Int) error {
