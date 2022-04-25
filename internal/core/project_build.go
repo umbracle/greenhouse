@@ -68,7 +68,9 @@ func (p *Project) Compile() error {
 		path = strings.TrimPrefix(path, p.libDirectory)
 
 		// remove the contracts path in the destination name
-		sourcePath := filepath.Join(".greenhouse", path)
+		sourcePath := p.getFile(".greenhouse", path)
+
+		fmt.Println("--- compile path ---", path, sourcePath)
 		if err := os.MkdirAll(sourcePath, 0755); err != nil {
 			return err
 		}
@@ -88,7 +90,7 @@ func (p *Project) Compile() error {
 	if err != nil {
 		return err
 	}
-	if err := ioutil.WriteFile(filepath.Join(".greenhouse", "metadata.json"), metadataRaw, 0644); err != nil {
+	if err := ioutil.WriteFile(p.getFile(".greenhouse", "metadata.json"), metadataRaw, 0644); err != nil {
 		return err
 	}
 	return nil

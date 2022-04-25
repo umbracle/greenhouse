@@ -15,6 +15,7 @@ type Config struct {
 	Contracts    string
 	Solidity     string
 	Dependencies map[string]string
+	DataDir      string
 }
 
 func DefaultConfig() *Config {
@@ -22,6 +23,7 @@ func DefaultConfig() *Config {
 		Contracts:    "contracts",
 		Solidity:     "0.8.4",
 		Dependencies: map[string]string{},
+		DataDir:      "",
 	}
 }
 

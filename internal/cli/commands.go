@@ -22,6 +22,11 @@ func Commands() map[string]cli.CommandFactory {
 		},
 	}
 	return map[string]cli.CommandFactory{
+		"agent": func() (cli.Command, error) {
+			return &AgentCommand{
+				baseCommand: baseCommand,
+			}, nil
+		},
 		"build": func() (cli.Command, error) {
 			return &BuildCommand{
 				baseCommand: baseCommand,

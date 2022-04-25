@@ -90,7 +90,7 @@ func (p *Project) initSources() error {
 	}
 	dirs := []string{"contracts"}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(filepath.Join(".greenhouse", dir), os.ModePerm); err != nil {
+		if err := os.MkdirAll(p.getFile(".greenhouse", dir), os.ModePerm); err != nil {
 			return err
 		}
 	}
@@ -186,6 +186,14 @@ func Diff(sources []*state.Source, files []*File1) ([]*FileDiff, error) {
 	return diff, nil
 }
 
+func (p *Project) getFile(path ...string) string {
+	fullPath := append([]string{}, path...)
+	if p.config.DataDir != "" {
+		fullPath = append([]string{p.config.DataDir}, fullPath...)
+	}
+	return filepath.Join(fullPath...)
+}
+
 func existsFile(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -199,7 +207,7 @@ func existsFile(path string) (bool, error) {
 func (p *Project) loadMetadata() error {
 	var metadata *metadataFormat
 
-	metadataPath := filepath.Join(".greenhouse", "metadata.json")
+	metadataPath := p.getFile(".greenhouse", "metadata.json")
 	exists, err := existsFile(metadataPath)
 	if err != nil {
 		return err
